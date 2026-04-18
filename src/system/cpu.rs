@@ -10,7 +10,7 @@ fn read_snapshot() -> CpuSnapshot {
     let contents = fs::read_to_string("/proc/stat").unwrap();
     let line = contents.lines().next().unwrap();
 
-    let values: Vector<u64> = line
+    let values: Vec<u64> = line
         .split_whitespace()
         .skip(1)
         .map(|v| v.parse().unwrap())

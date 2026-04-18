@@ -8,7 +8,7 @@ fn main() {
     let cpu = read_cpu_usage();
     
     let (total, available) = read_memory();
-    let mem = memory_usage_percentage(total, available);
+    let mem = memory_usage_percent(total, available);
 
     let uptime = read_uptime();
 
