@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::Parser;
 
 mod cli;
 use cli::commands::Commands;
@@ -16,7 +16,7 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Status => {
+        Commands::Status => {
             run_status();
         }
     }

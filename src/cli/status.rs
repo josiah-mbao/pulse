@@ -1,6 +1,6 @@
-use crate::system::cpu::read_cpu_usage;
-use crate::system::memory::{read_memory, memory_usage_percent};
-use crate::system::uptime::read_uptime;
+use pulse::system::cpu::read_cpu_usage;
+use pulse::system::memory::{read_memory, memory_usage_percent};
+use pulse::system::uptime::read_uptime;
 
 pub fn run_status() {
     let cpu = read_cpu_usage();
