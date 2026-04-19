@@ -1,19 +1,23 @@
-mod system;
+use clap::{Parser, Subcommand};
 
-use system::cpu::read_cpu_usage;
-use system::memory::{read_memory, memory_usage_percent};
-use system::uptime::read_uptime;
+mod cli;
+use cli::commands::Commands;
+use cli::status::run_status;
+
+#[derive(Parser)]
+#[command(name = "pulse")]
+#[command(about = "System observability tool for Linux")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
 
 fn main() {
-    let cpu = read_cpu_usage();
-    
-    let (total, available) = read_memory();
-    let mem = memory_usage_percent(total, available);
+    let cli = Cli::parse();
 
-    let uptime = read_uptime();
-
-    println!("=== Pulse System Status (Phase 1) ===");
-    println!("CPU: {:.2}%", cpu);
-    println!("Memory: {:.2}%", mem);
-    println!("Uptime: {:.2} seconds", uptime);
+    match cli.command {
+        Command::Status => {
+            run_status();
+        }
+    }
 }
