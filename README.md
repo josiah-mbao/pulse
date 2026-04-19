@@ -30,6 +30,7 @@ CPU usage is computed using a **delta-based sampling method**, similar to tradit
 ## 🧱 Architecture
 
 Pulse is split into two layers:
+
 CLI Layer (presentation) --> System Layer (metrics engine) --> /proc filesystem (Linux kernel interface)
 
 ### Structure
@@ -58,7 +59,7 @@ src/
 - Use Linux-native data sources (/proc)
 - Maintain minimal and readable codebase
 
-##⚠️ Limitations (Current Phase)
+## ⚠️ Limitations (Current Phase)
 - Linux only (relies on /proc)
 - No historical metrics tracking
 - No process-level monitoring yet
