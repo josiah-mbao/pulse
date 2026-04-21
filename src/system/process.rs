@@ -1,7 +1,7 @@
-use std::{fs, io};
+use std::fs;
 
 #[derive(Debug)]
-pub struct processInfo {
+pub struct ProcessInfo {
     pub pid: u32,
     pub name: String,
     pub memory_kb: u64,
@@ -9,15 +9,15 @@ pub struct processInfo {
 
 fn read_cmdline(pid: u32) -> Option<String> {
     let path = format!("/proc/{}/comm", pid);
-    fs::read_to_string(path).ok.map(|s| s.trim().to_string())
+    fs::read_to_string(path).ok().map(|s| s.trim().to_string())
 }
 
 fn read_memory(pid: u32) -> Option<u64> {
-    let path = format!("/proc/{}/comm", pid);
+    let path = format!("/proc/{}/status", pid);
     let content = fs::read_to_string(path).ok()?;
 
-    for line in content.lines {
-        if line.starts_with("Vmrss") {
+    for line in content.lines() {
+        if line.starts_with("VmRSS:") {
             return line
                 .split_whitespace()
                 .nth(1)
@@ -31,12 +31,12 @@ fn read_memory(pid: u32) -> Option<u64> {
 pub fn get_processes() -> Vec<ProcessInfo> {
     let mut processes = Vec::new();
 
-    let entries = fs::read_dir("/proc") {
+    let entries = match fs::read_dir("/proc") {
         Ok(e) => e,
         Err(_) => return processes,
     };
 
-    for entries in entries.flatten() {
+    for entry in entries.flatten() {
         let file_name = entry.file_name();
         let name = file_name.to_string_lossy();
 
@@ -45,13 +45,11 @@ pub fn get_processes() -> Vec<ProcessInfo> {
                 processes.push(ProcessInfo {
                     pid,
                     name,
-                    mem_kb: mem,
-                )};
+                    memory_kb: mem,
+                });
             }
         }
     }
 
     processes
 }
-
-

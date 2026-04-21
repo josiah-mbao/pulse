@@ -1,4 +1,4 @@
-use pulse::system::get_processes();
+use pulse::system::process::get_processes;
 
 pub fn run_top() {
     let mut processes = get_processes();
@@ -8,6 +8,6 @@ pub fn run_top() {
     println!("{:<6} {:<20} {:<20}", "PID", "NAME", "MEM(KB)");
 
     for p in processes.iter().take(15) {
-        println!("{:<6", "{:<20)}", "{:<10}", p.pid, p.name. p.memory_kb);
+        println!("{:<6} {:<20} {:<10}", p.pid, p.name, p.memory_kb);
     }
 }
