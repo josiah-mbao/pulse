@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::fs;
 
-use pulse::system::cpu::read_total_cpu_time;
-use pulse::system::process::read_cpu_time;
+use crate::system::cpu::read_total_cpu_time;
+use crate::system::process::read_cpu_time;
 
 pub struct SystemSnapshot {
     pub total_cpu: u64,
@@ -25,7 +25,7 @@ pub fn sample_system() -> SystemSnapshot {
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
 
-        if let Ok(pid) = name.parse<u32>() {
+        if let Ok(pid) = name.parse::<u32>() {
             if let Some(cpu_time) = read_cpu_time(pid) {
                 processes.insert(pid, cpu_time);
             }
@@ -43,8 +43,8 @@ pub fn sample_system() -> SystemSnapshot {
 pub fn compute_cpu_usage(
     prev: &SystemSnapshot,
     curr: &SystemSnapshot,
-) -> HashMap<u32, u64> {
-    let mut usage = HashMap::new();
+) -> HashMap<u32, f32> {
+    let mut usage: HashMap<u32, f32> = HashMap::new();
 
     let total_delta = curr.total_cpu.saturating_sub(prev.total_cpu);
 
