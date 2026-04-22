@@ -56,4 +56,14 @@ pub fn get_processes() -> Vec<ProcessInfo> {
     processes
 }
 
-pub fn read_cpu_time(pid: u32) -> Option<u64>
+pub fn read_cpu_time(pid: u32) -> Option<u64> {
+    let path = format!("/proc/{}/stat", pid);
+    let content = fs::read_to_string(path).ok()?;
+
+    let parts: Vec<&str> = content.split_whitespace().collect();
+
+    let utime: u64 = parts.get(13)?.parse().ok()?;
+    let stime: u64 = parts.get(14)?.parse().ok()?;
+
+    Some(utime + stime)
+}
