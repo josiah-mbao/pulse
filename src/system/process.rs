@@ -53,3 +53,5 @@ pub fn get_processes() -> Vec<ProcessInfo> {
 
     processes
 }
+
+pub fn read_cpu_time(pid: u32) -> Option<u64>
