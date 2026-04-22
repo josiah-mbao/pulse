@@ -1,16 +1,24 @@
-use pulse::system::cpu::read_cpu_usage;
 use pulse::system::memory::{read_memory, memory_usage_percent};
 use pulse::system::uptime::read_uptime;
+use pulse::system::snapshot::{sample_system, compute_cpu_usage};
+
+use std::{thread::sleep, time::Duration};
 
 #[test]
-fn cpu_is_valid_range() {
-    let cpu = read_cpu_usage();
+fn cpu_usage_is_valid_range() {
+    let prev = sample_system();
+    sleep(Duration::from_millis(200));
+    let curr = sample_system();
 
-    assert!(
-        cpu >= 0.0 && cpu <= 100.0,
-        "CPU usage out of range: {}",
-        cpu
-    );
+    let usage = compute_cpu_usage(&prev, &curr);
+
+    for (_pid, cpu) in usage {
+        assert!(
+            cpu >= 0.0 && cpu <= 100.0,
+            "CPU usage out of range: {}",
+            cpu
+        );
+    }
 }
 
 #[test]
@@ -49,8 +57,13 @@ fn uptime_is_non_negative() {
 
 #[test]
 fn system_metrics_do_not_panic() {
-    // This ensures your core system calls are stable
-    let _cpu = read_cpu_usage();
+    // CPU via snapshot system
+    let prev = sample_system();
+    sleep(Duration::from_millis(100));
+    let curr = sample_system();
+    let _usage = compute_cpu_usage(&prev, &curr);
+
+    // Other metrics
     let (_total, _available) = read_memory();
     let _uptime = read_uptime();
 
