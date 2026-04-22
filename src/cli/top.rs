@@ -18,7 +18,11 @@ pub fn run_top() {
         }
     }
 
-    processes.sort_by(|a, b| b.memory_kb.cmp(&a.memory_kb));
+    processes.sort_by(|a, b| {
+        b.cpu_percent
+            .partial_cmp(&a.cpu_percent)
+            .unwrap()
+    });
 
     println!("{:<6} {:<20} {:<10} {:<10}", "PID", "NAME", "MEM(KB)", "CPU(%)");
 
