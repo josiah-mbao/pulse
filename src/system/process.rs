@@ -5,6 +5,7 @@ pub struct ProcessInfo {
     pub pid: u32,
     pub name: String,
     pub memory_kb: u64,
+    pub cpu_percent: f32,
 }
 
 fn read_cmdline(pid: u32) -> Option<String> {
@@ -46,6 +47,7 @@ pub fn get_processes() -> Vec<ProcessInfo> {
                     pid,
                     name,
                     memory_kb: mem,
+                    cpu_percent: 0.0,
                 });
             }
         }
