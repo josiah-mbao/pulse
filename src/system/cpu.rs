@@ -36,3 +36,5 @@ pub fn read_cpu_usage() -> f32 {
 
     ((total_delta - idle_delta) as f32 / total_delta as f32) * 100.0
 }
+
+pub fn read_total_cpu_time() -> u64
