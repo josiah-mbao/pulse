@@ -39,3 +39,27 @@ pub fn sample_system() -> SystemSnapshot {
         processes,
     }
 }
+
+pub fn compute_cpu_usage(
+    prev: &SystemSnapshot,
+    curr: &SystemSnapshot,
+) -> HashMap<u32, u64> {
+    let mut usage = HashMap::new();
+
+    let total_delta = curr.total_cpu.saturating_sub(prev.total_cpu);
+
+    if total_delta == 0 {
+        return usage;
+    }
+
+    for (pid, &curr_time) in &curr.processes {
+        if let Some(&prev_time) = prev.processes.get(pid) {
+            let delta = curr_time.saturating_sub(prev_time);
+
+            let percent = (delta as f32 / total_delta as f32) * 100.0;
+            usage.insert(*pid, percent);
+        }
+    }
+
+    usage
+}
