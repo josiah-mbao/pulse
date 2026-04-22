@@ -1,3 +1,4 @@
+use std::fs;
 
 #[derive(Clone, Copy)]
 pub struct CpuSnapshot {
@@ -21,4 +22,12 @@ fn read_snapshot() -> CpuSnapshot {
     CpuSnapshot { total, idle }
 }
 
-pub fn read_total_cpu_time() -> u64
+pub fn read_total_cpu_time() -> u64 {
+    let contents = fs::read_to_string("/proc/stat").unwrap();
+    let line = contents.lines().next().unwrap();
+
+    line.split_whitespace()
+        .skip(1)
+        .map(|v| v.parse::<u64>().unwrap())
+        .sum()
+}
