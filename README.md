@@ -2,28 +2,22 @@
 
 A lightweight Linux system observability CLI written in Rust.
 
-Pulse reads directly from the Linux `/proc` filesystem to provide **system-level and process-level insights**, using time-based sampling to compute accurate CPU usage.
+Pulse provides real-time system and process-level metrics by reading directly from the Linux `/proc` filesystem and computing derived CPU usage using time-delta sampling.
 
 ---
 
 ## ⚙️ Current Features (v0.3)
 
-### 🖥️ `pulse status`
-Displays system-wide metrics:
-
+### 🖥️ System Metrics
 - CPU usage (delta-based calculation)
 - Memory usage (% used)
 - System uptime
 
----
-
-### 📊 `pulse top`
-Displays process-level metrics:
-
-- Per-process CPU usage (time-based, delta computed)
+### 📊 Process Monitoring (`pulse top`)
+- Per-process CPU usage (delta-based sampling)
 - Memory usage (RSS)
-- Sorted output (CPU or memory)
-- Top processes view
+- Live process ranking
+- Real-time updating display (1s refresh loop)
 
 ---
 
@@ -33,91 +27,115 @@ Pulse reads raw system data directly from Linux:
 
 - `/proc/stat` → total CPU time
 - `/proc/[pid]/stat` → per-process CPU time
-- `/proc/[pid]/status` → memory usage (VmRSS)
+- `/proc/[pid]/status` → memory usage
 - `/proc/meminfo` → system memory
 - `/proc/uptime` → system uptime
 
 ---
 
-### ⚡ CPU Calculation (Key Concept)
+## ⚡ CPU Usage Model
 
-CPU usage is **not directly readable**.
+CPU usage is computed using a delta-based sampling approach:
 
-Pulse computes it using a **delta-based sampling model**:
+(sample_t1 - sample_t0) → CPU utilization over time
 
+For processes:
+
+(process_delta / total_delta) × 100
+
+---
 
 ## 🧱 Architecture
 
-Pulse is split into two layers:
+Pulse is split into three layers:
 
-CLI Layer (presentation) --> System Layer (metrics engine) --> /proc filesystem (Linux kernel interface)
+CLI Layer (presentation)
+   ↓
+Sampling / Orchestration Layer (real-time loop)
+   ↓
+System Metrics Layer
+   ↓
+/proc filesystem (Linux kernel interface)
 
-### Structure
+---
 
-```
+## 📁 Structure
+
 src/
 ├── main.rs              # CLI entry point
 ├── lib.rs               # system module exposure
-├── cli/                 # CLI layer (commands + output)
+├── cli/                 # CLI layer
 │   ├── status.rs
-│   ├── commands.rs
+│   ├── top.rs
 │   └── mod.rs
-└── system/              # system metrics engine
+└── system/              # system engine
     ├── cpu.rs
     ├── memory.rs
     ├── uptime.rs
+    ├── process.rs
     ├── snapshot.rs
+    ├── sampler.rs       # orchestration layer
     └── mod.rs
-
-```
-
 
 ---
 
 ## 📌 Design Goals
 
-- Separate system logic from presentation
-- Build from first principles (no external monitoring libs)
-- Use Linux-native interfaces (`/proc`)
-- Model time-based metrics correctly
-- Keep the codebase minimal and understandable
+- Keep system logic separate from CLI
+- Model real OS-level observability patterns
+- Use Linux-native interfaces (/proc)
+- Build from first principles (no external monitoring tools)
+- Maintain clarity over premature optimization
 
 ---
 
 ## ⚠️ Limitations
 
-- Linux-only (depends on `/proc`)
-- Snapshot-based (not yet real-time updating)
-- CPU normalization across cores is basic
+- Linux only (depends on /proc)
+- Full process scan per refresh cycle
+- CPU sampling sensitive to timing window
 - No historical metrics storage
-- Full `/proc` scan per sample (not optimized yet)
+- No persistent state between runs
+- Terminal rendering uses full redraw (can flicker)
 
 ---
 
 ## 🚧 Roadmap
 
-### Phase 5 — Live Monitoring
-- Continuous refresh loop (`top`-like behavior)
-- Real-time updating interface
+### Phase 2 — Architecture Stabilization
+- Separate sampling, computation, and state layers
+- Reduce duplication in snapshot + process systems
+- Introduce persistent process state across loops
 
-### Phase 6 — Performance & Accuracy
-- Multi-core CPU normalization
-- Efficient `/proc` scanning
-- Improved error handling
+### Phase 3 — Performance & Accuracy
+- Optimize /proc scanning
+- Reduce redundant file reads
+- Improve CPU normalization across cores
+- Handle process churn more gracefully
 
-### Phase 7 — UX Improvements
-- Better formatting and sorting options
-- Optional colored output
+### Phase 4 — UI Improvements
+- Reduce terminal flicker
+- Add structured rendering layout
+- Introduce configurable refresh rates
 
-### Phase 8 — Advanced Features
-- JSON output
-- Logging/export mode
-- Lightweight daemon mode
+### Phase 5+ — Advanced Observability
+- Historical metrics storage
+- Time-series analysis
+- Export formats (JSON, logs)
+- Potential eBPF integration (future exploration)
 
 ---
 
 ## 🧠 Philosophy
 
-Pulse is built to understand **how system monitoring actually works under the hood**, not just to replicate existing tools.
+Pulse is not a wrapper around system tools. It is an attempt to reconstruct system observability from first principles.
+
+The goal is understanding how the system behaves, not abstracting it away.
 
 ---
+
+## 📊 Current State
+
+Pulse has reached a working real-time monitoring baseline with process-level CPU tracking and continuous system observation.
+
+It is transitioning from a snapshot-based CLI tool into a live system monitoring engine.
