@@ -2,14 +2,14 @@ use std::{thread::sleep, time::Duration};
 
 use pulse::system::sampler::sample_processes;
 
-pub fn run_loop() {
+pub fn run_top() {
     loop {
         // Clear terminal
         print!("\x1B[2J\x1B[1;1H");
 
         let mut processes = sample_processes();
 
-        processes.sort_by(|a, b| ){
+        processes.sort_by(|a, b| {
             b.cpu_percent
                 .partial_cmp(&a.cpu_percent)
                 .unwrap()
