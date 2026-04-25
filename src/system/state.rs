@@ -8,8 +8,8 @@ pub struct ProcessSnapshot {
 
 #[derive(Clone)]
 pub struct SystemState {
-    prev: HashMap<u32, ProcessSnapshot>,
-    curr: HashMap<u32, RawProcess>,
+    pub prev: HashMap<u32, ProcessSnapshot>,
+    pub curr: HashMap<u32, RawProcess>,
 }
 
 pub fn build_state(prev: HashMap<u32, ProcessSnapshot>, curr: Vec<RawProcess>) -> SystemState {
