@@ -46,22 +46,40 @@ For processes:
 
 ---
 
-## 🧱 Architecture
+## 🏗️ Architecture & Design
 
-Pulse is split into three layers:
+Pulse is built with a decoupled, data-driven pipeline to ensure that heavy system I/O never blocks the TUI rendering thread.
 
-CLI Layer (presentation)
-   ↓
-Sampling / Orchestration Layer (real-time loop)
-   ↓
-System Metrics Layer
-   ↓
-/proc filesystem (Linux kernel interface)
-
+### 🧱 System Flow
+```text
+  ┌──────────────┐      ┌──────────────────────────────┐
+  │  CLI Layer   │ ──── │        Engine Layer          │
+  └──────────────┘      │   (Orchestration & State)    │
+                        └──────────────┬───────────────┘
+                                       │
+                ┌──────────────────────┴──────────────────────┐
+                ▼                                             ▼
+      ┌───────────────────┐                         ┌───────────────────┐
+      │     Collector     │                         │    State Store    │
+      │    (/proc IO)     │                         │    (Snapshots)    │
+      └─────────┬─────────┘                         └─────────┬─────────┘
+                │                                             │
+                └──────────────────────┬──────────────────────┘
+                                       ▼
+                             ┌───────────────────┐
+                             │   View Builder    │
+                             │  (Sort / Filter)  │
+                             └─────────┬─────────┘
+                                       ▼
+                             ┌───────────────────┐
+                             │     Renderer      │
+                             │  (Ratatui / TUI)  │
+                             └───────────────────┘
+```
 ---
 
 ## 📁 Structure
-
+```text
 src/
 ├── main.rs              # CLI entry point
 ├── lib.rs               # system module exposure
@@ -77,7 +95,7 @@ src/
     ├── snapshot.rs
     ├── sampler.rs       # orchestration layer
     └── mod.rs
-
+```
 ---
 
 ## 📌 Design Goals
