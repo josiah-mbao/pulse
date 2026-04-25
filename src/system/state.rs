@@ -26,20 +26,19 @@ pub fn build_state(prev: HashMap<u32, ProcessSnapshot>, curr: Vec<RawProcess>) -
 
 pub fn compute_cpu(state: &SystemState) -> HashMap<u32, f32> {
     let mut out = HashMap::new();
-    
-    let mut total_delta: f64 = 0.0;
+    let mut deltas: HashMap<u32, u64> = HashMap::new();
 
-    let mut deltas: HashMap<u32, f64> = HashMap::new();
+    let mut total_delta: u64 = 0;
 
     for (pid, curr) in &state.curr {
         if let Some(prev) = state.prev.get(pid) {
             let delta = curr.cpu_time.saturating_sub(prev.cpu_time);
-            deltas.insert(*pid, delta);
             total_delta += delta;
+            deltas.insert(*pid, delta);
         }
     }
 
-    if total_delta == 0.0 {
+    if total_delta == 0 {
         return out;
     }
 
