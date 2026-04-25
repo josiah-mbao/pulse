@@ -1,8 +1,7 @@
 # Pulse
+A lightweight Linux system observability, CLI written in Rust.
 
 ![Demo of Pulse](docs/demo.gif)
-
-A lightweight Linux system observability CLI written in Rust.
 
 Pulse provides real-time system and process-level metrics by reading directly from the Linux `/proc` filesystem and computing derived CPU usage using time-delta sampling.
 
