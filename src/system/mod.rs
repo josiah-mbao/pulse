@@ -4,4 +4,5 @@ pub mod uptime;
 pub mod process;
 pub mod snapshot;
 pub mod sampler;
+pub mod collector;
 pub mod state;
