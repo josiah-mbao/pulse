@@ -6,3 +6,4 @@ pub mod snapshot;
 pub mod sampler;
 pub mod collector;
 pub mod state;
+pub mod view;
