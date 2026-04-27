@@ -45,20 +45,34 @@ pub fn collect_processes() -> Vec<RawProcess> {
     };
 
     for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
+        let pid_str = entry.file_name().to_string_lossy();
 
-        if let Ok(pid) = name.parse::<u32>() {
-            if let (Some(name), Some(mem), Some(cpu)) =
-                (read_name(pid), read_memory(pid), read_cpu_time(pid))
-            {
-                out.push(RawProcess {
-                    pid,
-                    name,
-                    memory_kb: mem,
-                    cpu_time: cpu,
-                });
-            }
-        }
+        let pid = match pid_string.parse::<u32>() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+
+        let name = match read_name(pid) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        let memory_kb = match read_memory(pid) {
+            Some(m) => m,
+            None => continue,
+        };
+
+        let cpu_time = match read_cpu_time(pid) {
+            Some(c) => c,
+            None => continue,
+        };
+
+        out.push(RawProcess {
+            pid,
+            name,
+            memory_kb,
+            cpu_time,
+        });
     }
 
     out
