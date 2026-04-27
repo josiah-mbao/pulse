@@ -59,6 +59,8 @@ pub fn run_app() -> Result<(), io::Error> {
         match read_input() {
             InputEvent::Quit => break,
             InputEvent::TogglePause => app.paused = !app.paused,
+            InputEvent::SortCpu => app.sort_mode = SortMode::Cpu,
+            InputEvent::SortMemory => app.sort_mode = SortMode::Memory,
             InputEvent::None => {}
         }
 

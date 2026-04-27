@@ -4,6 +4,8 @@ use std::time::Duration;
 pub enum InputEvent {
     Quit,
     TogglePause,
+    SortCpu,
+    SortMemory,
     None,
 }
 
@@ -13,8 +15,10 @@ pub fn read_input() -> InputEvent {
             match key.code {
                 KeyCode::Char('q') => return InputEvent::Quit,
                 KeyCode::Char('p') => return InputEvent::TogglePause,
-                _ => {}
-            }
+                KeyCode::Char('c') => return InputEvent::SortCpu,
+                KeyCode::Char('m') => return InputEvent::SortMemory,
+                _ => InputEvent::None,
+            };
         }
     }
 
