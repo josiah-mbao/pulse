@@ -8,6 +8,7 @@ use crate::system::{
 };
 use crate::system::state::ProcessSnapshot;
 use crate::tui::renderer::render;
+use crate::tui::input::{read_input, InputEvent};
 
 use crossterm::{
     execute,
@@ -59,6 +60,13 @@ pub fn run_app() -> Result<(), io::Error> {
     let mut prev: HashMap<u32, ProcessSnapshot> = HashMap::new();
 
     loop {
+        match read_input() {
+            InputEvent::Quit => break,
+            InputEvent::TogglePause => app.paused = !app.paused,
+            InputEvent::None => {}
+        }
+
+
         if !app.paused {
             let raw = collect_processes();
             let state = build_state(prev, raw);
@@ -75,7 +83,7 @@ pub fn run_app() -> Result<(), io::Error> {
             render(f, &app);
         })?;
 
-        sleep(Duration::from_millis(1));
+        sleep(Duration::from_secs(1));
     }
 
     disable_raw_mode()?;
