@@ -2,6 +2,7 @@ use std::io;
 use std::collections::HashMap;
 
 use crate::system::state::ProcessSnapshot;
+use crate::tui::renderer::render;
 
 use crossterm::{
     execute,
@@ -9,6 +10,13 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 
+loop {
+    terminal.draw(|f| {
+        render(f, &AppState::new());
+    })?;
+
+    break;
+}
 
 #[derive(Clone, Copy)]
 pub enum SortMode {
