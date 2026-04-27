@@ -4,6 +4,7 @@ use crate::system::collector::RawProcess;
 #[derive(Clone)]
 pub struct ProcessSnapshot {
     pub cpu_time: u64,
+    pub memory_kb: u64,
 }
 
 #[derive(Clone)]
@@ -12,11 +13,21 @@ pub struct SystemState {
     pub curr: HashMap<u32, RawProcess>,
 }
 
-pub fn build_state(prev: HashMap<u32, ProcessSnapshot>, curr: Vec<RawProcess>) -> SystemState {
-    let curr_map = curr
-        .into_iter()
-        .map(|p| (p.pid, p))
-        .collect();
+pub fn build_state(
+    prev: HashMap<u32, ProcessSnapshot>,
+    curr: Vec<RawProcess>,
+) -> SystemState {
+    let mut curr_map: HashMap<u32, ProcessSnapshot> = HashMap::new();
+
+    for p in curr {
+        curr_map.insert(
+            p.pid,
+            ProcessSnapshot {
+                cpu_time: p.cpu_time,
+                memory_kb: p.memory_kb,
+            },
+        );
+    }
 
     SystemState {
         prev,
