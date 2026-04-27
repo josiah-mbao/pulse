@@ -3,7 +3,7 @@ use clap::Parser;
 mod cli;
 use cli::commands::Commands;
 use cli::status::run_status;
-use cli::top::run_top;
+use tui::app::run_app;
 
 #[derive(Parser)]
 #[command(name = "pulse")]
@@ -14,10 +14,5 @@ struct Cli {
 }
 
 fn main() {
-    let cli = Cli::parse();
-
-    match cli.command {
-        Commands::Status => run_status(),
-        Commands::Top => run_top(),
-    }
+    run_app().unwrap();
 }
