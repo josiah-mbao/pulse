@@ -1,28 +1,24 @@
-use std::io;
-use std::collections::HashMap;
-use std::{thread::sleep, time::Duration};
-
-use crate::system::{
-    collector::collect_processes,
-    state::{build_state, compute_cpu, ProcessSnapshot},
+use std::{
+    collections::HashMap,
+    io,
+    thread::sleep,
+    time::Duration,
 };
-use crate::system::state::ProcessSnapshot;
-use crate::tui::renderer::render;
-use crate::tui::input::{read_input, InputEvent};
 
 use crossterm::{
     execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode},
 };
+
 use ratatui::{backend::CrosstermBackend, Terminal};
 
-loop {
-    terminal.draw(|f| {
-        render(f, &AppState::new());
-    })?;
+use pulse::system::{
+    collector::collect_processes,
+    state::{build_state, compute_cpu, ProcessSnapshot},
+};
 
-    break;
-}
+use crate::tui::renderer::render;
+use crate::tui::input::{read_input, InputEvent};
 
 #[derive(Clone, Copy)]
 pub enum SortMode {
@@ -48,13 +44,13 @@ impl AppState {
     }
 }
 
-
 pub fn run_app() -> Result<(), io::Error> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
 
-    terminal.clear()?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
 
     let mut app = AppState::new();
     let mut prev: HashMap<u32, ProcessSnapshot> = HashMap::new();
@@ -66,11 +62,9 @@ pub fn run_app() -> Result<(), io::Error> {
             InputEvent::None => {}
         }
 
-
         if !app.paused {
             let raw = collect_processes();
             let state = build_state(prev, raw);
-
             let cpu_map = compute_cpu(&state);
 
             app.processes = state.curr.clone();

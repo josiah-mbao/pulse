@@ -7,12 +7,12 @@ use ratatui::{
 use crate::tui::app::AppState;
 
 pub fn render(frame: &mut Frame, app: &AppState) {
-    let size = frame.size()?;
+    let area = frame.area();
 
-    let chunks = layout::default()
+    let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constrain::Percentage(100)])
-        .split(size);
+        .constraints([Constraint::Percentage(100)])
+        .split(area);
 
     let mut rows = Vec::new();
 
@@ -20,22 +20,24 @@ pub fn render(frame: &mut Frame, app: &AppState) {
         let cpu = app.cpu_map.get(pid).unwrap_or(&0.0);
 
         rows.push(Row::new(vec![
-                pid.to_string(),
-                proc.name.clone(),
-                format!("{:.2}", cpu),
-                proc.memory_kb.to_string(),
+            pid.to_string(),
+            proc.name.clone(),
+            format!("{:.2}", cpu),
+            proc.memory_kb.to_string(),
         ]));
     }
 
-    let table = Table::new(rows)
-        .header(Row::new(vec!["PID", "NAME", "CPU%", "MEM"]))
-        .block(Block::default().borders(Borders::ALL).title("Pulse"))
-        .widths(&[
+    let table = Table::new(
+        rows,
+        [
             Constraint::Length(6),
             Constraint::Length(20),
             Constraint::Length(8),
             Constraint::Length(10),
-        ]);
+        ],
+    )
+    .header(Row::new(vec!["PID", "NAME", "CPU%", "MEM"]))
+    .block(Block::default().borders(Borders::ALL).title("Pulse"));
 
     frame.render_widget(table, chunks[0]);
 }
