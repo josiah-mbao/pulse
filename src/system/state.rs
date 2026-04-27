@@ -10,7 +10,7 @@ pub struct ProcessSnapshot {
 #[derive(Clone)]
 pub struct SystemState {
     pub prev: HashMap<u32, ProcessSnapshot>,
-    pub curr: HashMap<u32, RawProcess>,
+    pub curr: HashMap<u32, ProcessSnapshot>,
 }
 
 pub fn build_state(
