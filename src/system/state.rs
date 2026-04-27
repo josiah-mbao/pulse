@@ -34,29 +34,31 @@ pub fn build_state(
         curr: curr_map,
     }
 }
-
 pub fn compute_cpu(state: &SystemState) -> HashMap<u32, f32> {
-    let mut out = HashMap::new();
-    let mut deltas: HashMap<u32, u64> = HashMap::new();
+    let mut usage = HashMap::new();
 
     let mut total_delta: u64 = 0;
+    let mut deltas: HashMap<u32, u64> = HashMap::new();
 
     for (pid, curr) in &state.curr {
         if let Some(prev) = state.prev.get(pid) {
             let delta = curr.cpu_time.saturating_sub(prev.cpu_time);
-            total_delta += delta;
-            deltas.insert(*pid, delta);
+
+            if delta > 0 {
+                deltas.insert(*pid, delta);
+                total_delta += delta;
+            }
         }
     }
 
     if total_delta == 0 {
-        return out;
+        return usage;
     }
 
     for (pid, delta) in deltas {
         let percent = (delta as f32 / total_delta as f32) * 100.0;
-        out.insert(pid, percent);
+        usage.insert(pid, percent);
     }
 
-    out
+    usage
 }
