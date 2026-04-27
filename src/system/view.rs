@@ -1,4 +1,4 @@
-use crate::system::collector::RawProcess;
+use crate::system::state::ProcessSnapshot;
 use std::collections::HashMap;
 
 pub struct ProcessView {
@@ -9,7 +9,7 @@ pub struct ProcessView {
 }
 
 pub fn build_view(
-    processes: &HashMap<u32, RawProcess>,
+    processes: &HashMap<u32, ProcessSnapshot>,
     cpu_map: &HashMap<u32, f32>,
 ) -> Vec<ProcessView> {
     let mut out = Vec::new();
@@ -17,7 +17,7 @@ pub fn build_view(
     for (pid, proc) in processes {
         out.push(ProcessView {
             pid: *pid,
-            name: proc.name.clone(),
+            name: String::from("process"), // (temporary placeholder if name not tracked yet)
             cpu_percent: *cpu_map.get(pid).unwrap_or(&0.0),
             memory_kb: proc.memory_kb,
         });
