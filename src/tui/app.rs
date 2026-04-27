@@ -1,6 +1,11 @@
 use std::io;
 use std::collections::HashMap;
+use std::{thread::sleep, time::Duration};
 
+use crate::system::{
+    collector::collect_processes,
+    state::{build_state, compute_cpu, ProcessSnapshot},
+};
 use crate::system::state::ProcessSnapshot;
 use crate::tui::renderer::render;
 
@@ -50,9 +55,27 @@ pub fn run_app() -> Result<(), io::Error> {
 
     terminal.clear()?;
 
-    // Temp loop. Will replace later
+    let mut app = AppState::new();
+    let mut prev: HashMap<u32, ProcessSnapshot> = HashMap::new();
+
     loop {
-        break;
+        if !app.paused {
+            let raw = collect_processes();
+            let state = build_state(prev, raw);
+
+            let cpu_map = compute_cpu(&state);
+
+            app.processes = state.curr.clone();
+            app.cpu_map = cpu_map;
+
+            prev = state.curr;
+        }
+
+        terminal.draw(|f| {
+            render(f, &app);
+        })?;
+
+        sleep(Duration::from_millis(1));
     }
 
     disable_raw_mode()?;
