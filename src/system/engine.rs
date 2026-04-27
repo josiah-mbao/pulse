@@ -13,7 +13,7 @@ pub fn run_top_loop() {
     loop {
         let raw = collect_processes();
 
-        let state = build_state(prev.clone(), raw.clone());
+        let state = build_state(prev, raw);
 
         let cpu_map = compute_cpu(&state);
 
@@ -30,11 +30,7 @@ pub fn run_top_loop() {
             );
         }
 
-        prev = state
-            .curr
-            .iter()
-            .map(|(pid, p)| (*pid, ProcessSnapshot { cpu_time: p.cpu_time }))
-            .collect();
+        prev = state.clone();
 
         sleep(Duration::from_secs(1));
     }
