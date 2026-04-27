@@ -3,6 +3,7 @@ use crate::system::collector::RawProcess;
 
 #[derive(Clone)]
 pub struct ProcessSnapshot {
+    pub name: String,
     pub cpu_time: u64,
     pub memory_kb: u64,
 }
@@ -23,6 +24,7 @@ pub fn build_state(
         curr_map.insert(
             p.pid,
             ProcessSnapshot {
+                name: p.name,
                 cpu_time: p.cpu_time,
                 memory_kb: p.memory_kb,
             },

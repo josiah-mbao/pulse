@@ -17,7 +17,7 @@ pub fn build_view(
     for (pid, proc) in processes {
         out.push(ProcessView {
             pid: *pid,
-            name: String::from("process"), // (temporary placeholder if name not tracked yet)
+            name: proc.name.clone(),
             cpu_percent: *cpu_map.get(pid).unwrap_or(&0.0),
             memory_kb: proc.memory_kb,
         });
