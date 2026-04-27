@@ -45,7 +45,8 @@ pub fn collect_processes() -> Vec<RawProcess> {
     };
 
     for entry in entries.flatten() {
-        let pid_str = entry.file_name().to_string_lossy();
+        let file_name = entry.file_name();
+        let pid_str = file_name.to_string_lossy();
 
         let pid = match pid_str.parse::<u32>() {
             Ok(p) => p,
