@@ -1,33 +1,24 @@
 use std::fs;
 
-#[derive(Clone, Copy)]
 pub struct CpuSnapshot {
-    pub total: u64,
-    pub idle: u64,
+    pub total_time: u64,
 }
 
-fn read_snapshot() -> CpuSnapshot {
-    let contents = fs::read_to_string("/proc/stat").unwrap();
-    let line = contents.lines().next().unwrap();
-
-    let values: Vec<u64> = line
-        .split_whitespace()
-        .skip(1)
-        .map(|v| v.parse().unwrap())
-        .collect();
-
-    let idle = values[3];
-    let total = values.iter().sum();
-
-    CpuSnapshot { total, idle }
-}
-
+/// Reads the total CPU time from /proc/stat
 pub fn read_total_cpu_time() -> u64 {
-    let contents = fs::read_to_string("/proc/stat").unwrap();
-    let line = contents.lines().next().unwrap();
+    let contents = fs::read_to_string("/proc/stat").unwrap_or_default();
+    let line = contents.lines().next().unwrap_or("");
+    let parts: Vec<&str> = line.split_whitespace().collect();
 
-    line.split_whitespace()
-        .skip(1)
-        .map(|v| v.parse::<u64>().unwrap())
-        .sum()
+    // Summing: user, nice, system, idle, iowait, irq, softirq
+    let mut total: u64 = 0;
+    for part in parts.iter().skip(1).take(7) {
+        if let Ok(val) = part.parse::<u64>() {
+            total += val;
+        }
+    }
+    total
 }
+
+// Resolved dead_code by removing the unused private helper 'read_snapshot' 
+
