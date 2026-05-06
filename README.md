@@ -1,160 +1,81 @@
 # Pulse
-A lightweight Linux system observability, CLI written in Rust.
+A lightweight Linux system observability TUI written in Rust.
 
 ![Demo of Pulse](docs/demo.gif)
 
-Pulse provides real-time system and process-level metrics by reading directly from the Linux `/proc` filesystem and computing derived CPU usage using time-delta sampling.
+Pulse provides real-time system and process-level metrics by reading directly from the Linux `/proc` filesystem and computing normalized CPU usage using asynchronous time-delta sampling.
 
 ---
 
-## ⚙️ Current Features (v0.3)
+## ⚙️ Current Features (v0.4)
 
-### 🖥️ System Metrics
-- CPU usage (delta-based calculation)
-- Memory usage (% used)
-- System uptime
+### 🖥️ System Dashboard
+- **Multi-threaded I/O:** Background data collection ensures zero UI lag.
+- **Real-time Metrics:** Normalized CPU usage and Memory utilization gauges.
+- **Uptime Tracking:** Live system uptime display.
 
-### 📊 Process Monitoring (`pulse top`)
-- Per-process CPU usage (delta-based sampling)
-- Memory usage (RSS)
-- Live process ranking
-- Real-time updating display (1s refresh loop)
-
----
-
-## 🧠 How It Works
-
-Pulse reads raw system data directly from Linux:
-
-- `/proc/stat` → total CPU time
-- `/proc/[pid]/stat` → per-process CPU time
-- `/proc/[pid]/status` → memory usage
-- `/proc/meminfo` → system memory
-- `/proc/uptime` → system uptime
-
----
-
-## ⚡ CPU Usage Model
-
-CPU usage is computed using a delta-based sampling approach:
-
-(sample_t1 - sample_t0) → CPU utilization over time
-
-For processes:
-
-(process_delta / total_delta) × 100
+### 📊 Process Monitoring
+- **Normalized CPU %:** Usage calculated against total system capacity, not just active processes.
+- **Memory Tracking:** Resident Set Size (RSS) monitoring.
+- **Interactive UI:** Instant sorting toggle (CPU/Mem) and pause functionality.
 
 ---
 
 ## 🏗️ Architecture & Design
 
-Pulse is built with a decoupled, data-driven pipeline to ensure that heavy system I/O never blocks the TUI rendering thread.
+Pulse uses a multi-threaded producer-consumer model to ensure that heavy `/proc` filesystem I/O never blocks the terminal rendering thread.
 
 ### 🧱 System Flow
+
 ```text
-  ┌──────────────┐      ┌──────────────────────────────┐
-  │  CLI Layer   │ ──── │        Engine Layer          │
-  └──────────────┘      │   (Orchestration & State)    │
-                        └──────────────┬───────────────┘
-                                       │
-                ┌──────────────────────┴──────────────────────┐
-                ▼                                             ▼
-      ┌───────────────────┐                         ┌───────────────────┐
-      │     Collector     │                         │    State Store    │
-      │    (/proc IO)     │                         │    (Snapshots)    │
-      └─────────┬─────────┘                         └─────────┬─────────┘
-                │                                             │
-                └──────────────────────┬──────────────────────┘
-                                       ▼
-                             ┌───────────────────┐
-                             │   View Builder    │
-                             │  (Sort / Filter)  │
-                             └─────────┬─────────┘
-                                       ▼
-                             ┌───────────────────┐
-                             │     Renderer      │
-                             │  (Ratatui / TUI)  │
-                             └───────────────────┘
+  ┌──────────────────┐      ┌──────────────────────────────┐
+  │  Renderer Thread │      │      Collector Thread        │
+  │  (Ratatui @60fps)│      │  (Engine Logic @1s sampling) │
+  └────────┬─────────┘      └──────────────┬───────────────┘
+           │                               │
+           │        MPSC Channel           │
+           └◄──────────────────────────────┘
+                    (SystemState)
 ```
+
+---
+
+## ⚡ CPU Usage Model
+
+Pulse calculates CPU utilization using a delta-based approach normalized against total system jiffies:
+
+$$CPU\% = \frac{Process\Delta}{SystemTotal\Delta} \times 100$$
+
 ---
 
 ## 📁 Structure
+
 ```text
 src/
-├── main.rs              # CLI entry point
-├── lib.rs               # system module exposure
-├── cli/                 # CLI layer
-│   ├── status.rs
-│   ├── top.rs
-│   └── mod.rs
-└── system/              # system engine
-    ├── cpu.rs
-    ├── memory.rs
-    ├── uptime.rs
-    ├── process.rs
-    ├── snapshot.rs
-    ├── sampler.rs       # orchestration layer
-    └── mod.rs
+├── main.rs              # App entry point
+├── tui/                 # Terminal UI Layer
+│   ├── app.rs           # UI Loop & Thread Management
+│   ├── input.rs         # Non-blocking input handling
+│   └── renderer.rs      # Layout & Widget definitions
+└── system/              # System Engine
+    ├── cpu.rs           # /proc/stat parser
+    ├── memory.rs        # /proc/meminfo parser
+    ├── engine.rs        # State orchestration
+    ├── state.rs         # Delta computation logic
+    └── process.rs       # /proc/[pid] parsing
 ```
----
-
-## 📌 Design Goals
-
-- Keep system logic separate from CLI
-- Model real OS-level observability patterns
-- Use Linux-native interfaces (/proc)
-- Build from first principles (no external monitoring tools)
-- Maintain clarity over premature optimization
 
 ---
 
-## ⚠️ Limitations
+## 🚧 Roadmap (Phase 5+)
 
-- Linux only (depends on /proc)
-- Full process scan per refresh cycle
-- CPU sampling sensitive to timing window
-- No historical metrics storage
-- No persistent state between runs
-- Terminal rendering uses full redraw (can flicker)
-
----
-
-## 🚧 Roadmap
-
-### Phase 2 — Architecture Stabilization
-- Separate sampling, computation, and state layers
-- Reduce duplication in snapshot + process systems
-- Introduce persistent process state across loops
-
-### Phase 3 — Performance & Accuracy
-- Optimize /proc scanning
-- Reduce redundant file reads
-- Improve CPU normalization across cores
-- Handle process churn more gracefully
-
-### Phase 4 — UI Improvements
-- Reduce terminal flicker
-- Add structured rendering layout
-- Introduce configurable refresh rates
-
-### Phase 5+ — Advanced Observability
-- Historical metrics storage
-- Time-series analysis
-- Export formats (JSON, logs)
-- Potential eBPF integration (future exploration)
+- **Historical Metrics:** Implement a local time-series buffer for short-term history.
+- **Filtering:** Add a search/filter bar to the process table.
+- **Tree View:** Group processes by parent PID.
+- **Export Formats:** Support for JSON or log-based snapshots.
 
 ---
 
 ## 🧠 Philosophy
 
-Pulse is not a wrapper around system tools. It is an attempt to reconstruct system observability from first principles.
-
-The goal is understanding how the system behaves, not abstracting it away.
-
----
-
-## 📊 Current State
-
-Pulse has reached a working real-time monitoring baseline with process-level CPU tracking and continuous system observation.
-
-It is transitioning from a snapshot-based CLI tool into a live system monitoring engine.
+Pulse is built from first principles to understand Linux observability. It is not a wrapper; it is an exploration of the `/proc` filesystem. The goal is understanding how the system behaves, not abstracting it away.
