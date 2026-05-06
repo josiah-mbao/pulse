@@ -17,21 +17,16 @@ impl Engine {
     }
 
     pub fn tick(&mut self) -> (HashMap<u32, ProcessSnapshot>, HashMap<u32, f32>) {
-        // 1. Get current system-wide CPU time
         let curr_total_cpu = read_total_cpu_time();
         let total_delta = curr_total_cpu.saturating_sub(self.prev_total_cpu);
         
-        // 2. Collect current process data
         let raw = collect_processes();
         
-        // 3. Build state using the new 3-argument signature
-        // This was the source of the E0061 error
+        // Build state with total_delta for normalized CPU usage[cite: 5]
         let state = build_state(self.prev_processes.clone(), raw, total_delta);
-        
-        // 4. Compute normalized CPU percentages
         let cpu_map = compute_cpu(&state);
 
-        // 5. Update persistence for the next tick
+        // Persist current state to use as "prev" in the next tick[cite: 5, 14]
         self.prev_processes = state.curr.clone();
         self.prev_total_cpu = curr_total_cpu;
 
