@@ -1,53 +1,40 @@
-use std::{thread::sleep, time::Duration};
 use std::collections::HashMap;
+use crate::system::collector::collect_processes;
+use crate::system::state::{build_state, compute_cpu, ProcessSnapshot};
+use crate::system::cpu::read_total_cpu_time;
 
-use crate::system::{
-    collector::collect_processes,
-    state::{build_state, compute_cpu, ProcessSnapshot},
-    view::build_view,
-};
-
-pub fn run_top_loop() {
-    let mut prev: HashMap<u32, ProcessSnapshot> = HashMap::new();
-
-    loop {
-        // 1. Collect raw process data
-        let raw = collect_processes();
-
-        // 2. Build system state (prev + current snapshot)
-        let state = build_state(prev, raw);
-
-        // 3. Compute CPU usage deltas
-        let cpu_map = compute_cpu(&state);
-
-        // 4. Build view model (sorted, display-ready)
-        let view = build_view(&state.curr, &cpu_map);
-
-        // 5. Render to terminal
-        render(view);
-
-        // 6. Update previous snapshot for next iteration
-        prev = state.curr.clone();
-
-        // 7. Sampling interval
-        sleep(Duration::from_secs(1));
-    }
+pub struct Engine {
+    prev_processes: HashMap<u32, ProcessSnapshot>,
+    prev_total_cpu: u64,
 }
 
-/// Responsible ONLY for output formatting.
-/// This is intentionally isolated for future TUI / JSON support.
-fn render(view: Vec<crate::system::view::ProcessView>) {
-    print!("\x1B[2J\x1B[1;1H");
+impl Engine {
+    pub fn new() -> Self {
+        Self {
+            prev_processes: HashMap::new(),
+            prev_total_cpu: read_total_cpu_time(),
+        }
+    }
 
-    println!("{:<6} {:<20} {:<10} {:<10}", "PID", "NAME", "MEM", "CPU");
+    pub fn tick(&mut self) -> (HashMap<u32, ProcessSnapshot>, HashMap<u32, f32>) {
+        // 1. Get current system-wide CPU time
+        let curr_total_cpu = read_total_cpu_time();
+        let total_delta = curr_total_cpu.saturating_sub(self.prev_total_cpu);
+        
+        // 2. Collect current process data
+        let raw = collect_processes();
+        
+        // 3. Build state using the new 3-argument signature
+        // This was the source of the E0061 error
+        let state = build_state(self.prev_processes.clone(), raw, total_delta);
+        
+        // 4. Compute normalized CPU percentages
+        let cpu_map = compute_cpu(&state);
 
-    for p in view.iter().take(15) {
-        println!(
-            "{:<6} {:<20} {:<10} {:.2}",
-            p.pid,
-            p.name,
-            p.memory_kb,
-            p.cpu_percent
-        );
+        // 5. Update persistence for the next tick
+        self.prev_processes = state.curr.clone();
+        self.prev_total_cpu = curr_total_cpu;
+
+        (state.curr, cpu_map)
     }
 }
