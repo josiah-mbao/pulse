@@ -1,6 +1,8 @@
 use std::{
     collections::HashMap,
     io,
+    sync::mpsc,
+    thread,
     time::{Duration, Instant},
 };
 
@@ -12,9 +14,8 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 
 use pulse::system::{
-    collector::collect_processes,
-    state::{build_state, compute_cpu, ProcessSnapshot},
-    cpu::read_total_cpu_time, 
+    engine::Engine,
+    state::ProcessSnapshot,
 };
 
 use crate::tui::renderer::render;
@@ -53,16 +54,29 @@ pub fn run_app() -> Result<(), io::Error> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = AppState::new();
+
+    // --- PHASE 3: Background Collection Setup ---
+    let (tx, rx) = mpsc::channel();
     
-    // Persistent state across loop iterations
-    let mut prev_processes: HashMap<u32, ProcessSnapshot> = HashMap::new();
-    let mut prev_total_cpu = read_total_cpu_time();
-    
-    let mut last_tick = Instant::now();
-    let tick_rate = Duration::from_secs(1);
+    // Spawn the collector thread
+    thread::spawn(move || {
+        let mut engine = Engine::new();
+        loop {
+            // Collect and calculate data
+            let (processes, cpu_map) = engine.tick();
+            
+            // Send to the UI thread
+            if tx.send((processes, cpu_map)).is_err() {
+                break; // UI thread has dropped, exit collector
+            }
+            
+            // Fixed sampling rate of 1 second
+            thread::sleep(Duration::from_secs(1));
+        }
+    });
 
     loop {
-        // 1. Process Input (Responsive Poll)
+        // 1. Process Input (Instant Response)
         match read_input() {
             InputEvent::Quit => break,
             InputEvent::TogglePause => app.paused = !app.paused,
@@ -71,33 +85,22 @@ pub fn run_app() -> Result<(), io::Error> {
             _ => {}
         }
 
-        // 2. Sample Data (Triggered on Tick)
-        if last_tick.elapsed() >= tick_rate {
-            if !app.paused {
-                // Calculate system-wide delta
-                let curr_total_cpu = read_total_cpu_time();
-                let total_delta = curr_total_cpu.saturating_sub(prev_total_cpu);
-                
-                let raw = collect_processes();
-                
-                // FIXED: Now passing 3 arguments as required by state.rs
-                let state = build_state(prev_processes, raw, total_delta);
-                let cpu_map = compute_cpu(&state);
-
-                app.processes = state.curr.clone();
-                app.cpu_map = cpu_map;
-
-                // Update previous state for the next calculation
-                prev_processes = state.curr;
-                prev_total_cpu = curr_total_cpu;
+        // 2. Non-blocking Check for New Data
+        if !app.paused {
+            // try_recv allows the UI to keep moving even if a new snapshot isn't ready
+            if let Ok((new_processes, new_cpu_map)) = rx.try_recv() {
+                app.processes = new_processes;
+                app.cpu_map = new_cpu_map;
             }
-            last_tick = Instant::now();
         }
 
         // 3. Render at High Frame Rate
         terminal.draw(|f| {
             render(f, &app);
         })?;
+        
+        // Minor sleep to prevent 100% CPU usage by the UI loop itself
+        thread::sleep(Duration::from_millis(16)); // ~60 FPS
     }
 
     disable_raw_mode()?;
