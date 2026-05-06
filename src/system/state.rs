@@ -12,11 +12,13 @@ pub struct ProcessSnapshot {
 pub struct SystemState {
     pub prev: HashMap<u32, ProcessSnapshot>,
     pub curr: HashMap<u32, ProcessSnapshot>,
+    pub total_cpu_delta: u64, 
 }
 
 pub fn build_state(
     prev: HashMap<u32, ProcessSnapshot>,
     curr: Vec<RawProcess>,
+    total_cpu_delta: u64,
 ) -> SystemState {
     let mut curr_map: HashMap<u32, ProcessSnapshot> = HashMap::new();
 
@@ -34,32 +36,28 @@ pub fn build_state(
     SystemState {
         prev,
         curr: curr_map,
+        total_cpu_delta,
     }
 }
+
 pub fn compute_cpu(state: &SystemState) -> HashMap<u32, f32> {
     let mut usage = HashMap::new();
 
-    let mut total_delta: u64 = 0;
-    let mut deltas: HashMap<u32, u64> = HashMap::new();
-
-    for (pid, curr) in &state.curr {
-        if let Some(prev) = state.prev.get(pid) {
-            let delta = curr.cpu_time.saturating_sub(prev.cpu_time);
-
-            if delta > 0 {
-                deltas.insert(*pid, delta);
-                total_delta += delta;
-            }
-        }
-    }
-
-    if total_delta == 0 {
+    // If no time has passed globally, avoid division by zero
+    if state.total_cpu_delta == 0 {
         return usage;
     }
 
-    for (pid, delta) in deltas {
-        let percent = (delta as f32 / total_delta as f32) * 100.0;
-        usage.insert(pid, percent);
+    for (pid, curr) in &state.curr {
+        if let Some(prev) = state.prev.get(pid) {
+            let proc_delta = curr.cpu_time.saturating_sub(prev.cpu_time);
+
+            if proc_delta > 0 {
+                // Calculation: (Process Jiffies / System Jiffies) * 100
+                let percent = (proc_delta as f32 / state.total_cpu_delta as f32) * 100.0;
+                usage.insert(*pid, percent);
+            }
+        }
     }
 
     usage
