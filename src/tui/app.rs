@@ -1,8 +1,7 @@
 use std::{
     collections::HashMap,
     io,
-    thread::sleep,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crossterm::{
@@ -15,6 +14,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use pulse::system::{
     collector::collect_processes,
     state::{build_state, compute_cpu, ProcessSnapshot},
+    cpu::read_total_cpu_time, 
 };
 
 use crate::tui::renderer::render;
@@ -53,33 +53,51 @@ pub fn run_app() -> Result<(), io::Error> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = AppState::new();
-    let mut prev: HashMap<u32, ProcessSnapshot> = HashMap::new();
+    
+    // Persistent state across loop iterations
+    let mut prev_processes: HashMap<u32, ProcessSnapshot> = HashMap::new();
+    let mut prev_total_cpu = read_total_cpu_time();
+    
+    let mut last_tick = Instant::now();
+    let tick_rate = Duration::from_secs(1);
 
     loop {
+        // 1. Process Input (Responsive Poll)
         match read_input() {
             InputEvent::Quit => break,
             InputEvent::TogglePause => app.paused = !app.paused,
             InputEvent::SortCpu => app.sort_mode = SortMode::Cpu,
             InputEvent::SortMemory => app.sort_mode = SortMode::Memory,
-            InputEvent::None => {}
+            _ => {}
         }
 
-        if !app.paused {
-            let raw = collect_processes();
-            let state = build_state(prev, raw);
-            let cpu_map = compute_cpu(&state);
+        // 2. Sample Data (Triggered on Tick)
+        if last_tick.elapsed() >= tick_rate {
+            if !app.paused {
+                // Calculate system-wide delta
+                let curr_total_cpu = read_total_cpu_time();
+                let total_delta = curr_total_cpu.saturating_sub(prev_total_cpu);
+                
+                let raw = collect_processes();
+                
+                // FIXED: Now passing 3 arguments as required by state.rs
+                let state = build_state(prev_processes, raw, total_delta);
+                let cpu_map = compute_cpu(&state);
 
-            app.processes = state.curr.clone();
-            app.cpu_map = cpu_map;
+                app.processes = state.curr.clone();
+                app.cpu_map = cpu_map;
 
-            prev = state.curr;
+                // Update previous state for the next calculation
+                prev_processes = state.curr;
+                prev_total_cpu = curr_total_cpu;
+            }
+            last_tick = Instant::now();
         }
 
+        // 3. Render at High Frame Rate
         terminal.draw(|f| {
             render(f, &app);
         })?;
-
-        sleep(Duration::from_secs(1));
     }
 
     disable_raw_mode()?;
