@@ -32,12 +32,11 @@ fn cpu_style(cpu: f32) -> Style {
 pub fn render(frame: &mut Frame, app: &AppState) {
     let area = frame.area();
 
-    // Split layout into: Header, Stats, and Process Table
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3), // Header
-            Constraint::Length(3), // System Stats (Gauges)
+            Constraint::Length(3), // System Stats (The row for Gauges)
             Constraint::Min(10),   // Process List
         ])
         .split(area);
@@ -57,17 +56,34 @@ pub fn render(frame: &mut Frame, app: &AppState) {
         .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Cyan)));
     frame.render_widget(header, chunks[0]);
 
-    // 2. System Stats (Memory Gauge)
+    // 2. System Stats Row (Split into CPU and Memory)
+    let stats_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(50),
+            Constraint::Percentage(50),
+        ])
+        .split(chunks[1]);
+
+    // --- CPU Gauge ---
+    // Calculate total system load by summing all process percentages
+    let total_cpu_load: f32 = app.cpu_map.values().sum::<f32>().min(100.0);
+    let cpu_gauge = Gauge::default()
+        .block(Block::default().title(" System CPU ").borders(Borders::ALL))
+        .gauge_style(cpu_style(total_cpu_load))
+        .percent(total_cpu_load as u16)
+        .label(format!("{:.1}%", total_cpu_load));
+    frame.render_widget(cpu_gauge, stats_chunks[0]);
+
+    // --- Memory Gauge ---
     let (total_mem, avail_mem) = read_memory();
     let mem_percent = memory_usage_percent(total_mem, avail_mem);
-    
     let mem_gauge = Gauge::default()
         .block(Block::default().title(" System Memory ").borders(Borders::ALL))
         .gauge_style(Style::default().fg(if mem_percent > 80.0 { Color::Red } else { Color::Magenta }))
         .percent(mem_percent as u16)
         .label(format!("{:.1}% ({}/{})", mem_percent, format_memory(total_mem - avail_mem), format_memory(total_mem)));
-    
-    frame.render_widget(mem_gauge, chunks[1]);
+    frame.render_widget(mem_gauge, stats_chunks[1]);
 
     // 3. Process Table
     let mut processes: Vec<_> = app.processes.iter().collect();
@@ -76,7 +92,7 @@ pub fn render(frame: &mut Frame, app: &AppState) {
         SortMode::Cpu => {
             processes.sort_by(|(pid_a, _), (pid_b, _)| {
                 let cpu_a = app.cpu_map.get(pid_a).unwrap_or(&0.0);
-                let cpu_b = app.cpu_map.get(pid_b).unwrap_or(&0.0);
+                let cpu_b = app.cpu_map.get(pid_a).unwrap_or(&0.0);
                 cpu_b.partial_cmp(cpu_a).unwrap_or(std::cmp::Ordering::Equal)
             });
         }
