@@ -67,3 +67,24 @@ pub fn read_cpu_time(pid: u32) -> Option<u64> {
 
     Some(utime + stime)
 }
+
+pub fn get_extra_info(pid: u32) -> Option<(u32, u32, String)> {
+    let status_path = format!("/proc/{}/status", pid);
+    let content = fs::read_to_string(status_path).ok()?;
+    
+    let mut ppid = 0;
+    let mut threads = 0;
+    let mut state = String::from("Unknown");
+
+    for line in content.lines() {
+        if line.starts_with("PPid:") {
+            ppid = line.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+        } else if line.starts_with("Threads:") {
+            threads = line.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+        } else if line.starts_with("State:") {
+            // Skip "State:" and collect the rest (e.g., "S", "(sleeping)")
+            state = line.split_whitespace().skip(1).collect::<Vec<_>>().join(" ");
+        }
+    }
+    Some((ppid, threads, state))
+}

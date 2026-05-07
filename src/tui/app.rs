@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io, sync::mpsc, thread, time::Duration};
+use std::{collections::{HashMap, VecDeque}, io, sync::mpsc, thread, time::Duration};
 use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode},
@@ -25,6 +25,9 @@ pub struct AppState {
     pub selection_index: usize,
     pub scroll_offset: usize,
     pub filter_query: String,
+    // History Buffers for Sparklines
+    pub cpu_history: VecDeque<u64>,
+    pub mem_history: VecDeque<u64>,
 }
 
 impl AppState {
@@ -38,6 +41,20 @@ impl AppState {
             selection_index: 0,
             scroll_offset: 0,
             filter_query: String::new(),
+            cpu_history: VecDeque::from(vec![0; 50]),
+            mem_history: VecDeque::from(vec![0; 50]),
+        }
+    }
+
+    pub fn update_history(&mut self, cpu: u64, mem: u64) {
+        self.cpu_history.push_back(cpu);
+        if self.cpu_history.len() > 50 {
+            self.cpu_history.pop_front();
+        }
+        
+        self.mem_history.push_back(mem);
+        if self.mem_history.len() > 50 {
+            self.mem_history.pop_front();
         }
     }
 }
@@ -67,26 +84,29 @@ pub fn run_app() -> Result<(), io::Error> {
             if !app.paused {
                 app.processes = new_proc;
                 app.cpu_map = new_cpu;
+                
+                // Update historical trends
+                let total_cpu: f32 = app.cpu_map.values().sum::<f32>().min(100.0);
+                let (total_m, avail_m) = pulse::system::memory::read_memory();
+                let mem_p = pulse::system::memory::memory_usage_percent(total_m, avail_m);
+                
+                app.update_history(total_cpu as u64, mem_p as u64);
             }
         }
 
         // Handle Input Events
         match read_input() {
             InputEvent::Quit => if app.input_mode == InputMode::Normal { break },
-            InputEvent::EnterFilter => {
-                app.input_mode = InputMode::Filter;
-            }
+            InputEvent::EnterFilter => app.input_mode = InputMode::Filter,
             InputEvent::Esc => {
                 app.input_mode = InputMode::Normal;
                 app.filter_query.clear();
             }
-            InputEvent::Enter => {
-                app.input_mode = InputMode::Normal;
-            }
+            InputEvent::Enter => app.input_mode = InputMode::Normal,
             InputEvent::Char(c) => {
                 if app.input_mode == InputMode::Filter {
                     app.filter_query.push(c);
-                    app.selection_index = 0; // Reset selection when filtering
+                    app.selection_index = 0;
                 }
             }
             InputEvent::Backspace => {
@@ -111,7 +131,7 @@ pub fn run_app() -> Result<(), io::Error> {
         }
 
         terminal.draw(|f| render(f, &mut app))?;
-        thread::sleep(Duration::from_millis(16)); // ~60fps
+        thread::sleep(Duration::from_millis(16));
     }
 
     disable_raw_mode()?;

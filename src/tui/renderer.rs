@@ -1,20 +1,21 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style, Modifier},
-    widgets::{Block, Borders, Row, Table, Gauge, Paragraph},
+    widgets::{Block, Borders, Row, Table, Gauge, Paragraph, Sparkline},
     Frame,
 };
 use crate::tui::app::{AppState, SortMode, InputMode};
 use pulse::system::memory::{read_memory, memory_usage_percent};
 use pulse::system::uptime::read_uptime;
+use pulse::system::process::get_extra_info;
 
 pub fn render(frame: &mut Frame, app: &mut AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3), // Header
-            Constraint::Length(3), // Stats
-            Constraint::Min(10),   // Main (Table + Details)
+            Constraint::Length(3), // Sparklines
+            Constraint::Min(10),   // Main View
             Constraint::Length(1), // Footer
         ])
         .split(frame.area());
@@ -50,20 +51,21 @@ fn render_stats(frame: &mut Frame, app: &AppState, area: Rect) {
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(area);
 
-    let total_cpu_load: f32 = app.cpu_map.values().sum::<f32>().min(100.0);
-    let cpu_gauge = Gauge::default()
-        .block(Block::default().title(" CPU ").borders(Borders::ALL))
-        .gauge_style(Style::default().fg(Color::Green))
-        .percent(total_cpu_load as u16);
-    frame.render_widget(cpu_gauge, stats_chunks[0]);
+    // CPU Sparkline
+    let cpu_data: Vec<u64> = app.cpu_history.iter().cloned().collect();
+    let cpu_spark = Sparkline::default()
+        .block(Block::default().title(" CPU Trend ").borders(Borders::ALL))
+        .data(&cpu_data)
+        .style(Style::default().fg(Color::Green));
+    frame.render_widget(cpu_spark, stats_chunks[0]);
 
-    let (total_mem, avail_mem) = read_memory();
-    let mem_percent = memory_usage_percent(total_mem, avail_mem);
-    let mem_gauge = Gauge::default()
-        .block(Block::default().title(" MEM ").borders(Borders::ALL))
-        .gauge_style(Style::default().fg(Color::Magenta))
-        .percent(mem_percent as u16);
-    frame.render_widget(mem_gauge, stats_chunks[1]);
+    // Memory Sparkline
+    let mem_data: Vec<u64> = app.mem_history.iter().cloned().collect();
+    let mem_spark = Sparkline::default()
+        .block(Block::default().title(" MEM Trend ").borders(Borders::ALL))
+        .data(&mem_data)
+        .style(Style::default().fg(Color::Magenta));
+    frame.render_widget(mem_spark, stats_chunks[1]);
 }
 
 fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
@@ -124,13 +126,15 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
 }
 
 fn render_details(frame: &mut Frame, app: &AppState, area: Rect) {
-    let block = Block::default().borders(Borders::ALL).title(" Details ");
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Process Details ")
+        .border_style(Style::default().fg(Color::Yellow));
     
     let mut filtered_procs: Vec<_> = app.processes.iter()
         .filter(|(_, p)| p.name.to_lowercase().contains(&app.filter_query.to_lowercase()))
         .collect();
 
-    // We must sort the details list the same way as the table so the selection index matches
     match app.sort_mode {
         SortMode::Cpu => filtered_procs.sort_by(|(a,_),(b,_)| {
             app.cpu_map.get(b).partial_cmp(&app.cpu_map.get(a)).unwrap_or(std::cmp::Ordering::Equal)
@@ -138,15 +142,15 @@ fn render_details(frame: &mut Frame, app: &AppState, area: Rect) {
         SortMode::Memory => filtered_procs.sort_by(|(_,a),(_,b)| b.memory_kb.cmp(&a.memory_kb)),
     }
     
-    let mut details_text = String::from("\n No process selected");
+    let mut details_text = String::from("\n No selection");
 
     if let Some((pid, proc)) = filtered_procs.get(app.selection_index) {
+        let cpu = app.cpu_map.get(pid).unwrap_or(&0.0);
+        let extra = get_extra_info(**pid).unwrap_or((0, 0, "N/A".to_string()));
+
         details_text = format!(
-            "\n Name: {}\n PID: {}\n Memory: {} KB\n CPU: {:.1}%",
-            proc.name,
-            pid, // Correctly using the key from the tuple
-            proc.memory_kb,
-            app.cpu_map.get(pid).unwrap_or(&0.0) // Correctly using the key from the tuple
+            "\n NAME:    {}\n PID:     {}\n PPID:    {}\n STATE:   {}\n THREADS: {}\n\n MEMORY:  {} KB\n CPU:     {:.1}%",
+            proc.name, pid, extra.0, extra.2, extra.1, proc.memory_kb, cpu
         );
     }
     
