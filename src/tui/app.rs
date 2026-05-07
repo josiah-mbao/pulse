@@ -1,37 +1,30 @@
-use std::{
-    collections::HashMap,
-    io,
-    sync::mpsc,
-    thread,
-    time::{Duration, Instant},
-};
-
+use std::{collections::HashMap, io, sync::mpsc, thread, time::Duration};
 use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode},
 };
-
 use ratatui::{backend::CrosstermBackend, Terminal};
 
-use pulse::system::{
-    engine::Engine,
-    state::ProcessSnapshot,
-};
-
+use pulse::system::{engine::Engine, state::ProcessSnapshot};
 use crate::tui::renderer::render;
 use crate::tui::input::{read_input, InputEvent};
 
-#[derive(Clone, Copy)]
-pub enum SortMode {
-    Cpu,
-    Memory,
-}
+#[derive(Clone, Copy, PartialEq)]
+pub enum SortMode { Cpu, Memory }
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum InputMode { Normal, Filter }
 
 pub struct AppState {
     pub processes: HashMap<u32, ProcessSnapshot>,
     pub cpu_map: HashMap<u32, f32>,
     pub sort_mode: SortMode,
+    pub input_mode: InputMode,
     pub paused: bool,
+    // UX State
+    pub selection_index: usize,
+    pub scroll_offset: usize,
+    pub filter_query: String,
 }
 
 impl AppState {
@@ -40,7 +33,11 @@ impl AppState {
             processes: HashMap::new(),
             cpu_map: HashMap::new(),
             sort_mode: SortMode::Cpu,
+            input_mode: InputMode::Normal,
             paused: false,
+            selection_index: 0,
+            scroll_offset: 0,
+            filter_query: String::new(),
         }
     }
 }
@@ -49,63 +46,53 @@ pub fn run_app() -> Result<(), io::Error> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
-
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
 
     let mut app = AppState::new();
-
-    // --- PHASE 3: Background Collection Setup ---
     let (tx, rx) = mpsc::channel();
     
-    // Spawn the collector thread
     thread::spawn(move || {
         let mut engine = Engine::new();
         loop {
-            // Collect and calculate data
-            let (processes, cpu_map) = engine.tick();
-            
-            // Send to the UI thread
-            if tx.send((processes, cpu_map)).is_err() {
-                break; // UI thread has dropped, exit collector
-            }
-            
-            // Fixed sampling rate of 1 second
+            let (proc, cpu) = engine.tick();
+            if tx.send((proc, cpu)).is_err() { break; }
             thread::sleep(Duration::from_secs(1));
         }
     });
 
     loop {
-        // 1. Process Input (Instant Response)
-        match read_input() {
-            InputEvent::Quit => break,
-            InputEvent::TogglePause => app.paused = !app.paused,
-            InputEvent::SortCpu => app.sort_mode = SortMode::Cpu,
-            InputEvent::SortMemory => app.sort_mode = SortMode::Memory,
-            _ => {}
-        }
-
-        // 2. Non-blocking Check for New Data
-        if !app.paused {
-            // try_recv allows the UI to keep moving even if a new snapshot isn't ready
-            if let Ok((new_processes, new_cpu_map)) = rx.try_recv() {
-                app.processes = new_processes;
-                app.cpu_map = new_cpu_map;
+        if let Ok((new_proc, new_cpu)) = rx.try_recv() {
+            if !app.paused {
+                app.processes = new_proc;
+                app.cpu_map = new_cpu;
             }
         }
 
-        // 3. Render at High Frame Rate
-        terminal.draw(|f| {
-            render(f, &app);
-        })?;
-        
-        // Minor sleep to prevent 100% CPU usage by the UI loop itself
-        thread::sleep(Duration::from_millis(16)); // ~60 FPS
+        match read_input() {
+            InputEvent::Quit => break,
+            InputEvent::Up => {
+                app.selection_index = app.selection_index.saturating_sub(1);
+                if app.selection_index < app.scroll_offset {
+                    app.scroll_offset = app.selection_index;
+                }
+            }
+            InputEvent::Down => {
+                let count = app.processes.len();
+                if count > 0 && app.selection_index < count - 1 {
+                    app.selection_index += 1;
+                }
+            }
+            InputEvent::SortCpu => app.sort_mode = SortMode::Cpu,
+            InputEvent::SortMemory => app.sort_mode = SortMode::Memory,
+            InputEvent::TogglePause => app.paused = !app.paused,
+            _ => {}
+        }
+
+        terminal.draw(|f| render(f, &mut app))?;
+        thread::sleep(Duration::from_millis(16));
     }
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-
     Ok(())
 }
