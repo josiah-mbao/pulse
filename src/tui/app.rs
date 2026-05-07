@@ -51,6 +51,7 @@ pub fn run_app() -> Result<(), io::Error> {
     let mut app = AppState::new();
     let (tx, rx) = mpsc::channel();
     
+    // Background Engine Thread
     thread::spawn(move || {
         let mut engine = Engine::new();
         loop {
@@ -61,6 +62,7 @@ pub fn run_app() -> Result<(), io::Error> {
     });
 
     loop {
+        // Handle background data updates
         if let Ok((new_proc, new_cpu)) = rx.try_recv() {
             if !app.paused {
                 app.processes = new_proc;
@@ -68,28 +70,48 @@ pub fn run_app() -> Result<(), io::Error> {
             }
         }
 
+        // Handle Input Events
         match read_input() {
-            InputEvent::Quit => break,
+            InputEvent::Quit => if app.input_mode == InputMode::Normal { break },
+            InputEvent::EnterFilter => {
+                app.input_mode = InputMode::Filter;
+            }
+            InputEvent::Esc => {
+                app.input_mode = InputMode::Normal;
+                app.filter_query.clear();
+            }
+            InputEvent::Enter => {
+                app.input_mode = InputMode::Normal;
+            }
+            InputEvent::Char(c) => {
+                if app.input_mode == InputMode::Filter {
+                    app.filter_query.push(c);
+                    app.selection_index = 0; // Reset selection when filtering
+                }
+            }
+            InputEvent::Backspace => {
+                if app.input_mode == InputMode::Filter {
+                    app.filter_query.pop();
+                }
+            }
             InputEvent::Up => {
-                app.selection_index = app.selection_index.saturating_sub(1);
-                if app.selection_index < app.scroll_offset {
-                    app.scroll_offset = app.selection_index;
+                if app.input_mode == InputMode::Normal {
+                    app.selection_index = app.selection_index.saturating_sub(1);
                 }
             }
             InputEvent::Down => {
-                let count = app.processes.len();
-                if count > 0 && app.selection_index < count - 1 {
+                if app.input_mode == InputMode::Normal {
                     app.selection_index += 1;
                 }
             }
             InputEvent::SortCpu => app.sort_mode = SortMode::Cpu,
             InputEvent::SortMemory => app.sort_mode = SortMode::Memory,
             InputEvent::TogglePause => app.paused = !app.paused,
-            _ => {}
+            InputEvent::None => {}
         }
 
         terminal.draw(|f| render(f, &mut app))?;
-        thread::sleep(Duration::from_millis(16));
+        thread::sleep(Duration::from_millis(16)); // ~60fps
     }
 
     disable_raw_mode()?;
