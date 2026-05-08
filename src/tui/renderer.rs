@@ -13,10 +13,10 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Header
-            Constraint::Length(3), // Sparklines
-            Constraint::Min(10),   // Main View
-            Constraint::Length(1), // Footer
+            Constraint::Length(3), 
+            Constraint::Length(3), 
+            Constraint::Min(10),   
+            Constraint::Length(1), 
         ])
         .split(frame.area());
 
@@ -51,7 +51,6 @@ fn render_stats(frame: &mut Frame, app: &AppState, area: Rect) {
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(area);
 
-    // CPU Sparkline
     let cpu_data: Vec<u64> = app.cpu_history.iter().cloned().collect();
     let cpu_spark = Sparkline::default()
         .block(Block::default().title(" CPU Trend ").borders(Borders::ALL))
@@ -59,7 +58,6 @@ fn render_stats(frame: &mut Frame, app: &AppState, area: Rect) {
         .style(Style::default().fg(Color::Green));
     frame.render_widget(cpu_spark, stats_chunks[0]);
 
-    // Memory Sparkline
     let mem_data: Vec<u64> = app.mem_history.iter().cloned().collect();
     let mem_spark = Sparkline::default()
         .block(Block::default().title(" MEM Trend ").borders(Borders::ALL))
@@ -82,8 +80,13 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
 
     if processes.is_empty() {
         app.selection_index = 0;
+        app.target_pid = None;
     } else {
         app.selection_index = app.selection_index.min(processes.len().saturating_sub(1));
+        // Keep the target_pid updated so the input handler knows what to kill
+        if let Some((pid, _)) = processes.get(app.selection_index) {
+            app.target_pid = Some(**pid);
+        }
     }
 
     let visible_rows = (area.height as usize).saturating_sub(3); 
@@ -101,11 +104,17 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
         .take(visible_rows)
         .map(|(i, (pid, proc))| {
             let cpu = app.cpu_map.get(pid).unwrap_or(&0.0);
-            let style = if i == app.selection_index {
-                Style::default().bg(Color::White).fg(Color::Black).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
+            
+            let mut style = Style::default();
+            
+            if i == app.selection_index {
+                // Flash red if we are confirming a kill, otherwise white
+                if app.input_mode == InputMode::Confirm {
+                    style = style.bg(Color::Red).fg(Color::White).add_modifier(Modifier::BOLD);
+                } else {
+                    style = style.bg(Color::White).fg(Color::Black).add_modifier(Modifier::BOLD);
+                }
+            }
 
             Row::new(vec![
                 pid.to_string(),
@@ -114,13 +123,15 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
             ]).style(style)
         }).collect();
 
+    let title_color = if app.input_mode == InputMode::Confirm { Color::Red } else { Color::Reset };
+    
     let table = Table::new(rows, [
         Constraint::Length(8),
         Constraint::Min(10),
         Constraint::Length(8),
     ])
     .header(Row::new(vec!["PID", "NAME", "CPU"]).style(Style::default().fg(Color::Yellow)))
-    .block(Block::default().borders(Borders::ALL).title(format!(" Processes ({}) ", processes.len())));
+    .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(title_color)).title(format!(" Processes ({}) ", processes.len())));
 
     frame.render_widget(table, area);
 }
@@ -161,13 +172,20 @@ fn render_details(frame: &mut Frame, app: &AppState, area: Rect) {
 fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     let (text, style) = match app.input_mode {
         InputMode::Normal => (
-            format!(" ↑↓ Select | / Filter | s/m Sort | q Quit "),
+            format!(" ↑↓ Select | / Filter | k Kill | s/m Sort | q Quit "),
             Style::default().bg(Color::Cyan).fg(Color::Black)
         ),
         InputMode::Filter => (
             format!(" FILTERING: {}█ (Enter to apply, Esc to clear)", app.filter_query),
             Style::default().bg(Color::Yellow).fg(Color::Black)
         ),
+        InputMode::Confirm => {
+            let pid_text = app.target_pid.map_or("UNKNOWN".to_string(), |pid| pid.to_string());
+            (
+                format!(" SEND SIGTERM TO PID {}? (y/n) ", pid_text),
+                Style::default().bg(Color::Red).fg(Color::White).add_modifier(Modifier::BOLD)
+            )
+        }
     };
     
     let footer = Paragraph::new(text).style(style);

@@ -13,7 +13,7 @@ use crate::tui::input::{read_input, InputEvent};
 pub enum SortMode { Cpu, Memory }
 
 #[derive(Clone, Copy, PartialEq)]
-pub enum InputMode { Normal, Filter }
+pub enum InputMode { Normal, Filter, Confirm }
 
 pub struct AppState {
     pub processes: HashMap<u32, ProcessSnapshot>,
@@ -21,13 +21,12 @@ pub struct AppState {
     pub sort_mode: SortMode,
     pub input_mode: InputMode,
     pub paused: bool,
-    // UX State
     pub selection_index: usize,
     pub scroll_offset: usize,
     pub filter_query: String,
-    // History Buffers for Sparklines
     pub cpu_history: VecDeque<u64>,
     pub mem_history: VecDeque<u64>,
+    pub target_pid: Option<u32>, // The PID queued for termination
 }
 
 impl AppState {
@@ -43,6 +42,7 @@ impl AppState {
             filter_query: String::new(),
             cpu_history: VecDeque::from(vec![0; 50]),
             mem_history: VecDeque::from(vec![0; 50]),
+            target_pid: None,
         }
     }
 
@@ -85,7 +85,6 @@ pub fn run_app() -> Result<(), io::Error> {
                 app.processes = new_proc;
                 app.cpu_map = new_cpu;
                 
-                // Update historical trends
                 let total_cpu: f32 = app.cpu_map.values().sum::<f32>().min(100.0);
                 let (total_m, avail_m) = pulse::system::memory::read_memory();
                 let mem_p = pulse::system::memory::memory_usage_percent(total_m, avail_m);
@@ -97,12 +96,35 @@ pub fn run_app() -> Result<(), io::Error> {
         // Handle Input Events
         match read_input() {
             InputEvent::Quit => if app.input_mode == InputMode::Normal { break },
+            
+            // Mode Switching
             InputEvent::EnterFilter => app.input_mode = InputMode::Filter,
             InputEvent::Esc => {
                 app.input_mode = InputMode::Normal;
                 app.filter_query.clear();
+                app.target_pid = None;
             }
             InputEvent::Enter => app.input_mode = InputMode::Normal,
+            
+            // The Reaper Logic (Process Signaling)
+            InputEvent::Char('k') if app.input_mode == InputMode::Normal => {
+                app.input_mode = InputMode::Confirm;
+            }
+            InputEvent::Char('y') if app.input_mode == InputMode::Confirm => {
+                if let Some(pid) = app.target_pid {
+                    unsafe {
+                        libc::kill(pid as libc::pid_t, libc::SIGTERM);
+                    }
+                }
+                app.input_mode = InputMode::Normal;
+                app.target_pid = None;
+            }
+            InputEvent::Char('n') if app.input_mode == InputMode::Confirm => {
+                app.input_mode = InputMode::Normal;
+                app.target_pid = None;
+            }
+            
+            // Text Input for Filtering
             InputEvent::Char(c) => {
                 if app.input_mode == InputMode::Filter {
                     app.filter_query.push(c);
@@ -114,6 +136,8 @@ pub fn run_app() -> Result<(), io::Error> {
                     app.filter_query.pop();
                 }
             }
+            
+            // Navigation
             InputEvent::Up => {
                 if app.input_mode == InputMode::Normal {
                     app.selection_index = app.selection_index.saturating_sub(1);
@@ -124,6 +148,8 @@ pub fn run_app() -> Result<(), io::Error> {
                     app.selection_index += 1;
                 }
             }
+            
+            // Controls
             InputEvent::SortCpu => app.sort_mode = SortMode::Cpu,
             InputEvent::SortMemory => app.sort_mode = SortMode::Memory,
             InputEvent::TogglePause => app.paused = !app.paused,
