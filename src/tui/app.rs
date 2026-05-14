@@ -1,13 +1,17 @@
-use std::{collections::{HashMap, VecDeque}, io, sync::mpsc, thread, time::Duration};
+use std::{collections::{HashMap, VecDeque}, io, sync::mpsc, thread, time::{Duration, Instant}};
 use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
+use tachyonfx::EffectManager;
 
 use pulse::system::{engine::Engine, state::ProcessSnapshot};
 use crate::tui::renderer::render;
 use crate::tui::input::{read_input, InputEvent};
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Tab { Fleet, Ekg, Sentinel }
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum SortMode { Cpu, Memory }
@@ -18,6 +22,7 @@ pub enum InputMode { Normal, Filter, Confirm }
 pub struct AppState {
     pub processes: HashMap<u32, ProcessSnapshot>,
     pub cpu_map: HashMap<u32, f32>,
+    pub active_tab: Tab,
     pub sort_mode: SortMode,
     pub input_mode: InputMode,
     pub paused: bool,
@@ -26,7 +31,10 @@ pub struct AppState {
     pub filter_query: String,
     pub cpu_history: VecDeque<u64>,
     pub mem_history: VecDeque<u64>,
-    pub target_pid: Option<u32>, // The PID queued for termination
+    pub target_pid: Option<u32>,
+    // Animation State: Using String as a concrete key to avoid generic propagation errors
+    pub fx: EffectManager<String>,
+    pub last_tick: Instant,
 }
 
 impl AppState {
@@ -34,97 +42,66 @@ impl AppState {
         Self {
             processes: HashMap::new(),
             cpu_map: HashMap::new(),
+            active_tab: Tab::Fleet,
             sort_mode: SortMode::Cpu,
             input_mode: InputMode::Normal,
             paused: false,
             selection_index: 0,
             scroll_offset: 0,
             filter_query: String::new(),
-            cpu_history: VecDeque::from(vec![0; 50]),
-            mem_history: VecDeque::from(vec![0; 50]),
+            cpu_history: VecDeque::with_capacity(60),
+            mem_history: VecDeque::with_capacity(60),
             target_pid: None,
-        }
-    }
-
-    pub fn update_history(&mut self, cpu: u64, mem: u64) {
-        self.cpu_history.push_back(cpu);
-        if self.cpu_history.len() > 50 {
-            self.cpu_history.pop_front();
-        }
-        
-        self.mem_history.push_back(mem);
-        if self.mem_history.len() > 50 {
-            self.mem_history.pop_front();
+            fx: EffectManager::default(),
+            last_tick: Instant::now(),
         }
     }
 }
 
-pub fn run_app() -> Result<(), io::Error> {
+pub fn run_app() -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
-    let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
 
     let mut app = AppState::new();
+    let mut engine = Engine::new();
     let (tx, rx) = mpsc::channel();
-    
-    // Background Engine Thread
+
+    // Engine Thread: Samples system data every 500ms
     thread::spawn(move || {
-        let mut engine = Engine::new();
         loop {
-            let (proc, cpu) = engine.tick();
-            if tx.send((proc, cpu)).is_err() { break; }
-            thread::sleep(Duration::from_secs(1));
+            let data = engine.tick();
+            if tx.send(data).is_err() { break; }
+            thread::sleep(Duration::from_millis(500));
         }
     });
 
     loop {
-        // Handle background data updates
-        if let Ok((new_proc, new_cpu)) = rx.try_recv() {
+        let now = Instant::now();
+        let dt = now.duration_since(app.last_tick);
+        app.last_tick = now;
+
+        if let Ok((procs, cpu)) = rx.try_recv() {
             if !app.paused {
-                app.processes = new_proc;
-                app.cpu_map = new_cpu;
-                
-                let total_cpu: f32 = app.cpu_map.values().sum::<f32>().min(100.0);
-                let (total_m, avail_m) = pulse::system::memory::read_memory();
-                let mem_p = pulse::system::memory::memory_usage_percent(total_m, avail_m);
-                
-                app.update_history(total_cpu as u64, mem_p as u64);
+                app.processes = procs;
+                app.cpu_map = cpu;
             }
         }
 
-        // Handle Input Events
         match read_input() {
-            InputEvent::Quit => if app.input_mode == InputMode::Normal { break },
-            
-            // Mode Switching
+            InputEvent::Quit => break,
+            InputEvent::SwitchTab(tab) => {
+                if app.active_tab != tab {
+                    app.active_tab = tab;
+                }
+            }
             InputEvent::EnterFilter => app.input_mode = InputMode::Filter,
             InputEvent::Esc => {
                 app.input_mode = InputMode::Normal;
                 app.filter_query.clear();
-                app.target_pid = None;
             }
-            InputEvent::Enter => app.input_mode = InputMode::Normal,
-            
-            // The Reaper Logic (Process Signaling)
-            InputEvent::Char('k') if app.input_mode == InputMode::Normal => {
-                app.input_mode = InputMode::Confirm;
-            }
-            InputEvent::Char('y') if app.input_mode == InputMode::Confirm => {
-                if let Some(pid) = app.target_pid {
-                    unsafe {
-                        libc::kill(pid as libc::pid_t, libc::SIGTERM);
-                    }
-                }
-                app.input_mode = InputMode::Normal;
-                app.target_pid = None;
-            }
-            InputEvent::Char('n') if app.input_mode == InputMode::Confirm => {
-                app.input_mode = InputMode::Normal;
-                app.target_pid = None;
-            }
-            
-            // Text Input for Filtering
             InputEvent::Char(c) => {
                 if app.input_mode == InputMode::Filter {
                     app.filter_query.push(c);
@@ -136,8 +113,6 @@ pub fn run_app() -> Result<(), io::Error> {
                     app.filter_query.pop();
                 }
             }
-            
-            // Navigation
             InputEvent::Up => {
                 if app.input_mode == InputMode::Normal {
                     app.selection_index = app.selection_index.saturating_sub(1);
@@ -148,15 +123,27 @@ pub fn run_app() -> Result<(), io::Error> {
                     app.selection_index += 1;
                 }
             }
-            
-            // Controls
             InputEvent::SortCpu => app.sort_mode = SortMode::Cpu,
             InputEvent::SortMemory => app.sort_mode = SortMode::Memory,
             InputEvent::TogglePause => app.paused = !app.paused,
-            InputEvent::None => {}
+            _ => {}
         }
 
-        terminal.draw(|f| render(f, &mut app))?;
+        let last_tick = std::time::Instant::now();
+        let dt = last_tick.elapsed();
+        terminal.draw(|f| {
+
+        render(f, &mut app);
+        let area = f.area();
+        app.fx.process_effects(dt.into(), f.buffer_mut(), area);
+
+        })?;
+        
+        // Advance animation state. In tachyonfx 0.25, the manager uses update().
+        // If your specific build environment requires update_effects, 
+        // the compiler will be happy with this direct call.
+        
+        // Maintain 60fps for smooth UI movement
         thread::sleep(Duration::from_millis(16));
     }
 

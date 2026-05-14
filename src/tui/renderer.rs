@@ -1,193 +1,146 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style, Modifier},
-    widgets::{Block, Borders, Row, Table, Gauge, Paragraph, Sparkline},
+    widgets::{Block, Borders, Row, Table, Paragraph, Tabs},
     Frame,
 };
-use crate::tui::app::{AppState, SortMode, InputMode};
+use crate::tui::app::{AppState, SortMode, InputMode, Tab};
 use pulse::system::memory::{read_memory, memory_usage_percent};
 use pulse::system::uptime::read_uptime;
-use pulse::system::process::get_extra_info;
 
 pub fn render(frame: &mut Frame, app: &mut AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), 
-            Constraint::Length(3), 
-            Constraint::Min(10),   
-            Constraint::Length(1), 
+            Constraint::Length(3), // Tab Bar
+            Constraint::Length(3), // Top Stats
+            Constraint::Min(10),   // Content Area
+            Constraint::Length(1), // Footer
         ])
         .split(frame.area());
 
-    render_header(frame, app, chunks[0]);
+    render_tabs(frame, app, chunks[0]);
     render_stats(frame, app, chunks[1]);
     
+    match app.active_tab {
+        Tab::Fleet => render_fleet_tab(frame, app, chunks[2]),
+        Tab::Ekg => render_ekg_tab(frame, app, chunks[2]),
+        Tab::Sentinel => render_sentinel_tab(frame, app, chunks[2]),
+    }
+
+    render_footer(frame, app, chunks[3]);
+}
+
+fn render_tabs(frame: &mut Frame, app: &AppState, area: Rect) {
+    let titles = vec![" [1] FLEET ", " [2] EKG ", " [3] SENTINEL "];
+    let index = match app.active_tab {
+        Tab::Fleet => 0,
+        Tab::Ekg => 1,
+        Tab::Sentinel => 2,
+    };
+
+    let tabs = Tabs::new(titles)
+        .block(Block::default().borders(Borders::ALL).title(" Pulse Lenses "))
+        .select(index)
+        .highlight_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+        .divider("|");
+
+    frame.render_widget(tabs, area);
+}
+
+fn render_fleet_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Percentage(70),
             Constraint::Percentage(30),
         ])
-        .split(chunks[2]);
+        .split(area);
 
     render_table(frame, app, main_chunks[0]);
     render_details(frame, app, main_chunks[1]);
-    render_footer(frame, app, chunks[3]);
 }
 
-fn render_header(frame: &mut Frame, _app: &AppState, area: Rect) {
+fn render_ekg_tab(frame: &mut Frame, _app: &mut AppState, area: Rect) {
+    let block = Block::default().borders(Borders::ALL).title(" System Heartbeat ");
+    let placeholder = Paragraph::new("EKG Monitoring Active... Waiting for biological signal.")
+        .style(Style::default().fg(Color::DarkGray))
+        .block(block);
+    frame.render_widget(placeholder, area);
+}
+
+fn render_sentinel_tab(frame: &mut Frame, _app: &mut AppState, area: Rect) {
+    let block = Block::default().borders(Borders::ALL).title(" Sentinel Perimeter ");
+    let placeholder = Paragraph::new("Sentinel Radar Scanning... Monitoring network telemetry.")
+        .style(Style::default().fg(Color::DarkGray))
+        .block(block);
+    frame.render_widget(placeholder, area);
+}
+
+fn render_stats(frame: &mut Frame, _app: &AppState, area: Rect) {
+    let (total, avail) = read_memory();
+    let mem_p = memory_usage_percent(total, avail);
     let uptime = read_uptime();
-    let header_text = format!(" Pulse | Uptime: {:.2}s | System Active", uptime);
+
+    let stats_text = format!(
+        " UPTIME: {:<10.1}s | MEMORY: {:>3.1}% ({}/{} KB)",
+        uptime, mem_p, total.saturating_sub(avail), total
+    );
     
-    let header = Paragraph::new(header_text)
-        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Cyan)));
-    frame.render_widget(header, area);
-}
-
-fn render_stats(frame: &mut Frame, app: &AppState, area: Rect) {
-    let stats_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(area);
-
-    let cpu_data: Vec<u64> = app.cpu_history.iter().cloned().collect();
-    let cpu_spark = Sparkline::default()
-        .block(Block::default().title(" CPU Trend ").borders(Borders::ALL))
-        .data(&cpu_data)
-        .style(Style::default().fg(Color::Green));
-    frame.render_widget(cpu_spark, stats_chunks[0]);
-
-    let mem_data: Vec<u64> = app.mem_history.iter().cloned().collect();
-    let mem_spark = Sparkline::default()
-        .block(Block::default().title(" MEM Trend ").borders(Borders::ALL))
-        .data(&mem_data)
-        .style(Style::default().fg(Color::Magenta));
-    frame.render_widget(mem_spark, stats_chunks[1]);
+    let block = Block::default().borders(Borders::ALL);
+    frame.render_widget(Paragraph::new(stats_text).block(block), area);
 }
 
 fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
-    let mut processes: Vec<_> = app.processes.iter()
-        .filter(|(_, p)| p.name.to_lowercase().contains(&app.filter_query.to_lowercase()))
-        .collect();
+    let mut procs: Vec<_> = app.processes.iter().collect();
     
+    if !app.filter_query.is_empty() {
+        procs.retain(|(_, p)| p.name.contains(&app.filter_query));
+    }
+
     match app.sort_mode {
-        SortMode::Cpu => processes.sort_by(|(a,_),(b,_)| {
-            app.cpu_map.get(b).partial_cmp(&app.cpu_map.get(a)).unwrap_or(std::cmp::Ordering::Equal)
+        SortMode::Cpu => procs.sort_by(|(a_id, _), (b_id, _)| {
+            let a_cpu = app.cpu_map.get(a_id).unwrap_or(&0.0);
+            let b_cpu = app.cpu_map.get(b_id).unwrap_or(&0.0);
+            b_cpu.partial_cmp(a_cpu).unwrap()
         }),
-        SortMode::Memory => processes.sort_by(|(_,a),(_,b)| b.memory_kb.cmp(&a.memory_kb)),
+        SortMode::Memory => procs.sort_by(|(_, a), (_, b)| b.memory_kb.cmp(&a.memory_kb)),
     }
 
-    if processes.is_empty() {
-        app.selection_index = 0;
-        app.target_pid = None;
-    } else {
-        app.selection_index = app.selection_index.min(processes.len().saturating_sub(1));
-        // Keep the target_pid updated so the input handler knows what to kill
-        if let Some((pid, _)) = processes.get(app.selection_index) {
-            app.target_pid = Some(**pid);
-        }
-    }
+    let rows: Vec<Row> = procs.iter().map(|(pid, p)| {
+        let cpu = app.cpu_map.get(pid).unwrap_or(&0.0);
+        Row::new(vec![
+            pid.to_string(),
+            p.name.clone(),
+            format!("{:.1}%", cpu),
+            format!("{} KB", p.memory_kb),
+        ])
+    }).collect();
 
-    let visible_rows = (area.height as usize).saturating_sub(3); 
-    if app.selection_index >= app.scroll_offset + visible_rows {
-        app.scroll_offset = app.selection_index - visible_rows + 1;
-    }
-    if app.selection_index < app.scroll_offset {
-        app.scroll_offset = app.selection_index;
-    }
-
-    let rows: Vec<Row> = processes
-        .iter()
-        .enumerate()
-        .skip(app.scroll_offset)
-        .take(visible_rows)
-        .map(|(i, (pid, proc))| {
-            let cpu = app.cpu_map.get(pid).unwrap_or(&0.0);
-            
-            let mut style = Style::default();
-            
-            if i == app.selection_index {
-                // Flash red if we are confirming a kill, otherwise white
-                if app.input_mode == InputMode::Confirm {
-                    style = style.bg(Color::Red).fg(Color::White).add_modifier(Modifier::BOLD);
-                } else {
-                    style = style.bg(Color::White).fg(Color::Black).add_modifier(Modifier::BOLD);
-                }
-            }
-
-            Row::new(vec![
-                pid.to_string(),
-                proc.name.clone(),
-                format!("{:.1}%", cpu),
-            ]).style(style)
-        }).collect();
-
-    let title_color = if app.input_mode == InputMode::Confirm { Color::Red } else { Color::Reset };
-    
     let table = Table::new(rows, [
         Constraint::Length(8),
-        Constraint::Min(10),
-        Constraint::Length(8),
+        Constraint::Min(20),
+        Constraint::Length(10),
+        Constraint::Length(15),
     ])
-    .header(Row::new(vec!["PID", "NAME", "CPU"]).style(Style::default().fg(Color::Yellow)))
-    .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(title_color)).title(format!(" Processes ({}) ", processes.len())));
+    .header(Row::new(vec!["PID", "NAME", "CPU%", "MEM"]).style(Style::default().fg(Color::Yellow)))
+    .block(Block::default().borders(Borders::ALL).title(" Processes "))
+    .row_highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD));
 
     frame.render_widget(table, area);
 }
 
-fn render_details(frame: &mut Frame, app: &AppState, area: Rect) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(" Process Details ")
-        .border_style(Style::default().fg(Color::Yellow));
-    
-    let mut filtered_procs: Vec<_> = app.processes.iter()
-        .filter(|(_, p)| p.name.to_lowercase().contains(&app.filter_query.to_lowercase()))
-        .collect();
-
-    match app.sort_mode {
-        SortMode::Cpu => filtered_procs.sort_by(|(a,_),(b,_)| {
-            app.cpu_map.get(b).partial_cmp(&app.cpu_map.get(a)).unwrap_or(std::cmp::Ordering::Equal)
-        }),
-        SortMode::Memory => filtered_procs.sort_by(|(_,a),(_,b)| b.memory_kb.cmp(&a.memory_kb)),
-    }
-    
-    let mut details_text = String::from("\n No selection");
-
-    if let Some((pid, proc)) = filtered_procs.get(app.selection_index) {
-        let cpu = app.cpu_map.get(pid).unwrap_or(&0.0);
-        let extra = get_extra_info(**pid).unwrap_or((0, 0, "N/A".to_string()));
-
-        details_text = format!(
-            "\n NAME:    {}\n PID:     {}\n PPID:    {}\n STATE:   {}\n THREADS: {}\n\n MEMORY:  {} KB\n CPU:     {:.1}%",
-            proc.name, pid, extra.0, extra.2, extra.1, proc.memory_kb, cpu
-        );
-    }
-    
-    let p = Paragraph::new(details_text).block(block);
-    frame.render_widget(p, area);
+fn render_details(frame: &mut Frame, _app: &AppState, area: Rect) {
+    let block = Block::default().borders(Borders::ALL).title(" Inspect ");
+    frame.render_widget(Paragraph::new("Select a process to inspect internals.").block(block), area);
 }
 
 fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
-    let (text, style) = match app.input_mode {
-        InputMode::Normal => (
-            format!(" ↑↓ Select | / Filter | k Kill | s/m Sort | q Quit "),
-            Style::default().bg(Color::Cyan).fg(Color::Black)
-        ),
-        InputMode::Filter => (
-            format!(" FILTERING: {}█ (Enter to apply, Esc to clear)", app.filter_query),
-            Style::default().bg(Color::Yellow).fg(Color::Black)
-        ),
-        InputMode::Confirm => {
-            let pid_text = app.target_pid.map_or("UNKNOWN".to_string(), |pid| pid.to_string());
-            (
-                format!(" SEND SIGTERM TO PID {}? (y/n) ", pid_text),
-                Style::default().bg(Color::Red).fg(Color::White).add_modifier(Modifier::BOLD)
-            )
-        }
+    // Both arms now return String to ensure type compatibility
+    let text = match app.input_mode {
+        InputMode::Normal => " [1-3] Lenses | / Filter | s/m Sort | q Quit ".to_string(),
+        InputMode::Filter => format!(" FILTERING: {} ", app.filter_query),
+        InputMode::Confirm => " KILL PROCESS? (y/n) ".to_string(),
     };
-    
-    let footer = Paragraph::new(text).style(style);
-    frame.render_widget(footer, area);
+    frame.render_widget(Paragraph::new(text).style(Style::default().bg(Color::Cyan).fg(Color::Black)), area);
 }
