@@ -1,9 +1,9 @@
-use std::{collections::{HashMap, VecDeque}, io, sync::mpsc, thread, time::{Duration, Instant}};
+use std::{collections::HashMap, io, sync::mpsc, thread, time::{Duration, Instant}};
 use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{backend::CrosstermBackend, Terminal, widgets::TableState};
 use tachyonfx::EffectManager;
 
 use pulse::system::{engine::Engine, state::ProcessSnapshot};
@@ -22,38 +22,62 @@ pub enum InputMode { Normal, Filter, Confirm }
 pub struct AppState {
     pub processes: HashMap<u32, ProcessSnapshot>,
     pub cpu_map: HashMap<u32, f32>,
+    pub sorted_pids: Vec<u32>, // Shared single source of truth for UI ordering
+    pub table_state: TableState, 
     pub active_tab: Tab,
     pub sort_mode: SortMode,
     pub input_mode: InputMode,
     pub paused: bool,
-    pub selection_index: usize,
-    pub scroll_offset: usize,
     pub filter_query: String,
-    pub cpu_history: VecDeque<u64>,
-    pub mem_history: VecDeque<u64>,
     pub target_pid: Option<u32>,
-    // Animation State: Using String as a concrete key to avoid generic propagation errors
     pub fx: EffectManager<String>,
     pub last_tick: Instant,
 }
 
 impl AppState {
     pub fn new() -> Self {
+        let mut table_state = TableState::default();
+        table_state.select(Some(0)); // Initialize selection at the top
+
         Self {
             processes: HashMap::new(),
             cpu_map: HashMap::new(),
+            sorted_pids: Vec::new(),
+            table_state,
             active_tab: Tab::Fleet,
             sort_mode: SortMode::Cpu,
             input_mode: InputMode::Normal,
             paused: false,
-            selection_index: 0,
-            scroll_offset: 0,
             filter_query: String::new(),
-            cpu_history: VecDeque::with_capacity(60),
-            mem_history: VecDeque::with_capacity(60),
             target_pid: None,
             fx: EffectManager::default(),
             last_tick: Instant::now(),
+        }
+    }
+
+    pub fn update_sorted_pids(&mut self) {
+        let mut procs: Vec<_> = self.processes.iter().collect();
+        
+        if !self.filter_query.is_empty() {
+            procs.retain(|(_, p)| p.name.contains(&self.filter_query));
+        }
+
+        match self.sort_mode {
+            SortMode::Cpu => procs.sort_by(|(a_id, _), (b_id, _)| {
+                let a_cpu = self.cpu_map.get(a_id).unwrap_or(&0.0);
+                let b_cpu = self.cpu_map.get(b_id).unwrap_or(&0.0);
+                b_cpu.partial_cmp(a_cpu).unwrap()
+            }),
+            SortMode::Memory => procs.sort_by(|(_, a), (_, b)| b.memory_kb.cmp(&a.memory_kb)),
+        }
+        
+        self.sorted_pids = procs.into_iter().map(|(pid, _)| *pid).collect();
+        
+        // Prevent selection from floating out of bounds if processes die or filter narrows
+        if let Some(selected) = self.table_state.selected() {
+            if !self.sorted_pids.is_empty() && selected >= self.sorted_pids.len() {
+                self.table_state.select(Some(self.sorted_pids.len() - 1));
+            }
         }
     }
 }
@@ -69,7 +93,6 @@ pub fn run_app() -> io::Result<()> {
     let mut engine = Engine::new();
     let (tx, rx) = mpsc::channel();
 
-    // Engine Thread: Samples system data every 500ms
     thread::spawn(move || {
         loop {
             let data = engine.tick();
@@ -87,64 +110,92 @@ pub fn run_app() -> io::Result<()> {
             if !app.paused {
                 app.processes = procs;
                 app.cpu_map = cpu;
+                app.update_sorted_pids();
             }
         }
 
-        match read_input() {
+        // Adaptive Polling: Save system resources unless animating
+        let timeout = if app.fx.is_running() {
+            Duration::from_millis(16)
+        } else {
+            Duration::from_millis(100) 
+        };
+
+        match read_input(timeout) {
             InputEvent::Quit => break,
-            InputEvent::SwitchTab(tab) => {
-                if app.active_tab != tab {
-                    app.active_tab = tab;
-                }
-            }
+            InputEvent::SwitchTab(tab) => app.active_tab = tab,
             InputEvent::EnterFilter => app.input_mode = InputMode::Filter,
             InputEvent::Esc => {
                 app.input_mode = InputMode::Normal;
                 app.filter_query.clear();
+                app.update_sorted_pids();
             }
             InputEvent::Char(c) => {
                 if app.input_mode == InputMode::Filter {
                     app.filter_query.push(c);
-                    app.selection_index = 0;
+                    app.update_sorted_pids();
+                    app.table_state.select(Some(0)); // Reset cursor on search
                 }
             }
             InputEvent::Backspace => {
                 if app.input_mode == InputMode::Filter {
                     app.filter_query.pop();
+                    app.update_sorted_pids();
                 }
             }
             InputEvent::Up => {
                 if app.input_mode == InputMode::Normal {
-                    app.selection_index = app.selection_index.saturating_sub(1);
+                    let i = match app.table_state.selected() {
+                        Some(i) => i.saturating_sub(1),
+                        None => 0,
+                    };
+                    app.table_state.select(Some(i));
                 }
             }
             InputEvent::Down => {
                 if app.input_mode == InputMode::Normal {
-                    app.selection_index += 1;
+                    let i = match app.table_state.selected() {
+                        Some(i) => {
+                            if i >= app.sorted_pids.len().saturating_sub(1) { i } else { i + 1 }
+                        }
+                        None => 0,
+                    };
+                    app.table_state.select(Some(i));
                 }
             }
-            InputEvent::SortCpu => app.sort_mode = SortMode::Cpu,
-            InputEvent::SortMemory => app.sort_mode = SortMode::Memory,
+            InputEvent::Top => {
+                if app.input_mode == InputMode::Normal {
+                    app.table_state.select(Some(0));
+                }
+            }
+            InputEvent::Bottom => {
+                if app.input_mode == InputMode::Normal {
+                    let max = app.sorted_pids.len().saturating_sub(1);
+                    app.table_state.select(Some(max));
+                }
+            }
+            InputEvent::SortCpu => {
+                app.sort_mode = SortMode::Cpu;
+                app.update_sorted_pids();
+            }
+            InputEvent::SortMemory => {
+                app.sort_mode = SortMode::Memory;
+                app.update_sorted_pids();
+            }
             InputEvent::TogglePause => app.paused = !app.paused,
             _ => {}
         }
 
-        let last_tick = std::time::Instant::now();
-        let dt = last_tick.elapsed();
+        // Keep target_pid mapped to the active UI selection
+        if let Some(idx) = app.table_state.selected() {
+            app.target_pid = app.sorted_pids.get(idx).copied();
+        }
+
         terminal.draw(|f| {
-
-        render(f, &mut app);
-        let area = f.area();
-        app.fx.process_effects(dt.into(), f.buffer_mut(), area);
-
+            render(f, &mut app);
+            let area = f.area();
+            app.fx.process_effects(dt.into(), f.buffer_mut(), area);
         })?;
-        
-        // Advance animation state. In tachyonfx 0.25, the manager uses update().
-        // If your specific build environment requires update_effects, 
-        // the compiler will be happy with this direct call.
-        
-        // Maintain 60fps for smooth UI movement
-        thread::sleep(Duration::from_millis(16));
     }
 
     disable_raw_mode()?;

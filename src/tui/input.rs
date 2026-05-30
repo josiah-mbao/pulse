@@ -1,4 +1,4 @@
-use crossterm::event::{self, Event, KeyCode};
+use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use std::time::Duration;
 use crate::tui::app::Tab;
 
@@ -6,11 +6,13 @@ pub enum InputEvent {
     Quit,
     Up,
     Down,
+    Top,
+    Bottom,
     SortCpu,
     SortMemory,
     TogglePause,
     EnterFilter,
-    SwitchTab(Tab), // New variant for navigation
+    SwitchTab(Tab),
     Char(char),
     Backspace,
     Esc,
@@ -18,19 +20,29 @@ pub enum InputEvent {
     None,
 }
 
-pub fn read_input() -> InputEvent {
-    // We keep the poll short to maintain a high-refresh animation loop
-    if event::poll(Duration::from_millis(5)).unwrap_or(false) {
+pub fn read_input(timeout: Duration) -> InputEvent {
+    // Blocks only for the adaptive timeout duration
+    if event::poll(timeout).unwrap_or(false) {
         if let Ok(Event::Key(key)) = event::read() {
             return match key.code {
                 KeyCode::Char('q') => InputEvent::Quit,
-                KeyCode::Up => InputEvent::Up,
-                KeyCode::Down => InputEvent::Down,
+                // Arrow keys + Vim bindings
+                KeyCode::Up | KeyCode::Char('k') => InputEvent::Up,
+                KeyCode::Down | KeyCode::Char('j') => InputEvent::Down,
+                KeyCode::Char('g') => InputEvent::Top,
+                KeyCode::Char('G') => {
+                    // Check for shift modifier for capital G, or just map standard G
+                    if key.modifiers.contains(KeyModifiers::SHIFT) {
+                        InputEvent::Bottom
+                    } else {
+                        InputEvent::Char('G')
+                    }
+                },
                 KeyCode::Char('s') => InputEvent::SortCpu,
                 KeyCode::Char('m') => InputEvent::SortMemory,
                 KeyCode::Char('p') => InputEvent::TogglePause,
                 KeyCode::Char('/') => InputEvent::EnterFilter,
-                // Tab Switching
+                
                 KeyCode::Char('1') => InputEvent::SwitchTab(Tab::Fleet),
                 KeyCode::Char('2') => InputEvent::SwitchTab(Tab::Ekg),
                 KeyCode::Char('3') => InputEvent::SwitchTab(Tab::Sentinel),
