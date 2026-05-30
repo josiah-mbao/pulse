@@ -4,9 +4,10 @@ use ratatui::{
     widgets::{Block, Borders, Row, Table, Paragraph, Tabs},
     Frame,
 };
-use crate::tui::app::{AppState, SortMode, InputMode, Tab};
+use crate::tui::app::{AppState, InputMode, Tab};
 use pulse::system::memory::{read_memory, memory_usage_percent};
 use pulse::system::uptime::read_uptime;
+use pulse::system::process::get_extra_info; // Bring in the extra info
 
 pub fn render(frame: &mut Frame, app: &mut AppState) {
     let chunks = Layout::default()
@@ -92,29 +93,16 @@ fn render_stats(frame: &mut Frame, _app: &AppState, area: Rect) {
 }
 
 fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
-    let mut procs: Vec<_> = app.processes.iter().collect();
-    
-    if !app.filter_query.is_empty() {
-        procs.retain(|(_, p)| p.name.contains(&app.filter_query));
-    }
-
-    match app.sort_mode {
-        SortMode::Cpu => procs.sort_by(|(a_id, _), (b_id, _)| {
-            let a_cpu = app.cpu_map.get(a_id).unwrap_or(&0.0);
-            let b_cpu = app.cpu_map.get(b_id).unwrap_or(&0.0);
-            b_cpu.partial_cmp(a_cpu).unwrap()
-        }),
-        SortMode::Memory => procs.sort_by(|(_, a), (_, b)| b.memory_kb.cmp(&a.memory_kb)),
-    }
-
-    let rows: Vec<Row> = procs.iter().map(|(pid, p)| {
+    // Rely on the single source of truth for sorting mapping
+    let rows: Vec<Row> = app.sorted_pids.iter().filter_map(|pid| {
+        let p = app.processes.get(pid)?;
         let cpu = app.cpu_map.get(pid).unwrap_or(&0.0);
-        Row::new(vec![
+        Some(Row::new(vec![
             pid.to_string(),
             p.name.clone(),
             format!("{:.1}%", cpu),
             format!("{} KB", p.memory_kb),
-        ])
+        ]))
     }).collect();
 
     let table = Table::new(rows, [
@@ -125,22 +113,53 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
     ])
     .header(Row::new(vec!["PID", "NAME", "CPU%", "MEM"]).style(Style::default().fg(Color::Yellow)))
     .block(Block::default().borders(Borders::ALL).title(" Processes "))
-    .row_highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD));
+    .row_highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+    .highlight_symbol(">> "); // Makes selection obvious
 
-    frame.render_widget(table, area);
+    // This is the magic widget upgrade
+    frame.render_stateful_widget(table, area, &mut app.table_state); 
 }
 
-fn render_details(frame: &mut Frame, _app: &AppState, area: Rect) {
+fn render_details(frame: &mut Frame, app: &AppState, area: Rect) {
     let block = Block::default().borders(Borders::ALL).title(" Inspect ");
-    frame.render_widget(Paragraph::new("Select a process to inspect internals.").block(block), area);
+    
+    let content = if let Some(pid) = app.target_pid {
+        if let Some(proc) = app.processes.get(&pid) {
+            // Attempt to grab live metadata from /proc
+            let (ppid, threads, state) = get_extra_info(pid).unwrap_or((0, 0, "Unknown".to_string()));
+            
+            format!(
+                " Name:    {}\n PID:     {}\n PPID:    {}\n State:   {}\n Threads: {}\n\n CPU:     {:.2}%\n Memory:  {} KB",
+                proc.name, pid, ppid, state, threads, app.cpu_map.get(&pid).unwrap_or(&0.0), proc.memory_kb
+            )
+        } else {
+            "Process terminated.".to_string()
+        }
+    } else {
+        "Select a process to inspect internals.".to_string()
+    };
+
+    frame.render_widget(Paragraph::new(content).block(block), area);
 }
 
 fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
-    // Both arms now return String to ensure type compatibility
     let text = match app.input_mode {
-        InputMode::Normal => " [1-3] Lenses | / Filter | s/m Sort | q Quit ".to_string(),
+        InputMode::Normal => {
+            if app.paused {
+                " [PAUSED] | [1-3] Lenses | / Filter | s/m Sort | j/k Nav | q Quit ".to_string()
+            } else {
+                " [1-3] Lenses | / Filter | s/m Sort | j/k Nav | q Quit ".to_string()
+            }
+        },
         InputMode::Filter => format!(" FILTERING: {} ", app.filter_query),
         InputMode::Confirm => " KILL PROCESS? (y/n) ".to_string(),
     };
-    frame.render_widget(Paragraph::new(text).style(Style::default().bg(Color::Cyan).fg(Color::Black)), area);
+    
+    let style = if app.paused {
+        Style::default().bg(Color::Yellow).fg(Color::Black)
+    } else {
+        Style::default().bg(Color::Cyan).fg(Color::Black)
+    };
+    
+    frame.render_widget(Paragraph::new(text).style(style), area);
 }
