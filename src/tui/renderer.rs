@@ -1,13 +1,13 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style, Modifier},
-    widgets::{Block, Borders, Row, Table, Paragraph, Tabs},
+    widgets::{Block, Borders, Row, Table, Paragraph, Tabs, Sparkline},
     Frame,
 };
 use crate::tui::app::{AppState, InputMode, Tab};
 use pulse::system::memory::{read_memory, memory_usage_percent};
 use pulse::system::uptime::read_uptime;
-use pulse::system::process::get_extra_info; // Bring in the extra info
+use pulse::system::process::get_extra_info;
 
 pub fn render(frame: &mut Frame, app: &mut AppState) {
     let chunks = Layout::default()
@@ -62,12 +62,29 @@ fn render_fleet_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
     render_details(frame, app, main_chunks[1]);
 }
 
-fn render_ekg_tab(frame: &mut Frame, _app: &mut AppState, area: Rect) {
-    let block = Block::default().borders(Borders::ALL).title(" System Heartbeat ");
-    let placeholder = Paragraph::new("EKG Monitoring Active... Waiting for biological signal.")
-        .style(Style::default().fg(Color::DarkGray))
-        .block(block);
-    frame.render_widget(placeholder, area);
+fn render_ekg_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(50),
+            Constraint::Percentage(50),
+        ])
+        .split(area);
+
+    // Dynamic data casting from f32 window points to graphable u64 slices
+    let cpu_data: Vec<u64> = app.global_cpu_history.iter().map(|&v| v as u64).collect();
+    let cpu_spark = Sparkline::default()
+        .block(Block::default().borders(Borders::ALL).title(" Global CPU Heartbeat (0-100%) "))
+        .data(&cpu_data)
+        .style(Style::default().fg(Color::Green));
+    frame.render_widget(cpu_spark, chunks[0]);
+
+    let mem_data: Vec<u64> = app.global_mem_history.iter().map(|&v| v as u64).collect();
+    let mem_spark = Sparkline::default()
+        .block(Block::default().borders(Borders::ALL).title(" Memory Load History (0-100%) "))
+        .data(&mem_data)
+        .style(Style::default().fg(Color::Magenta));
+    frame.render_widget(mem_spark, chunks[1]);
 }
 
 fn render_sentinel_tab(frame: &mut Frame, _app: &mut AppState, area: Rect) {
@@ -93,7 +110,6 @@ fn render_stats(frame: &mut Frame, _app: &AppState, area: Rect) {
 }
 
 fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
-    // Rely on the single source of truth for sorting mapping
     let rows: Vec<Row> = app.sorted_pids.iter().filter_map(|pid| {
         let p = app.processes.get(pid)?;
         let cpu = app.cpu_map.get(pid).unwrap_or(&0.0);
@@ -114,9 +130,8 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
     .header(Row::new(vec!["PID", "NAME", "CPU%", "MEM"]).style(Style::default().fg(Color::Yellow)))
     .block(Block::default().borders(Borders::ALL).title(" Processes "))
     .row_highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
-    .highlight_symbol(">> "); // Makes selection obvious
+    .highlight_symbol(">> ");
 
-    // This is the magic widget upgrade
     frame.render_stateful_widget(table, area, &mut app.table_state); 
 }
 
@@ -125,7 +140,6 @@ fn render_details(frame: &mut Frame, app: &AppState, area: Rect) {
     
     let content = if let Some(pid) = app.target_pid {
         if let Some(proc) = app.processes.get(&pid) {
-            // Attempt to grab live metadata from /proc
             let (ppid, threads, state) = get_extra_info(pid).unwrap_or((0, 0, "Unknown".to_string()));
             
             format!(
