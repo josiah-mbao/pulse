@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io, sync::mpsc, thread, time::{Duration, Instant}};
+use std::{collections::HashMap, collections::VecDeque, io, sync::mpsc, thread, time::{Duration, Instant}};
 use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode},
@@ -6,9 +6,14 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal, widgets::TableState};
 use tachyonfx::EffectManager;
 
-use pulse::system::{engine::Engine, state::ProcessSnapshot};
+use pulse::system::{
+    engine::Engine, 
+    state::{ProcessSnapshot, TelemetryFrame, CpuJiffies, read_global_jiffies, read_global_mem_percent}
+};
 use crate::tui::renderer::render;
 use crate::tui::input::{read_input, InputEvent};
+
+const MAX_HISTORY_POINTS: usize = 200;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Tab { Fleet, Ekg, Sentinel }
@@ -22,7 +27,7 @@ pub enum InputMode { Normal, Filter, Confirm }
 pub struct AppState {
     pub processes: HashMap<u32, ProcessSnapshot>,
     pub cpu_map: HashMap<u32, f32>,
-    pub sorted_pids: Vec<u32>, // Shared single source of truth for UI ordering
+    pub sorted_pids: Vec<u32>,
     pub table_state: TableState, 
     pub active_tab: Tab,
     pub sort_mode: SortMode,
@@ -32,12 +37,16 @@ pub struct AppState {
     pub target_pid: Option<u32>,
     pub fx: EffectManager<String>,
     pub last_tick: Instant,
+    
+    // Time-series buffers for global telemetry
+    pub global_cpu_history: VecDeque<f32>,
+    pub global_mem_history: VecDeque<f32>,
 }
 
 impl AppState {
     pub fn new() -> Self {
         let mut table_state = TableState::default();
-        table_state.select(Some(0)); // Initialize selection at the top
+        table_state.select(Some(0));
 
         Self {
             processes: HashMap::new(),
@@ -52,6 +61,8 @@ impl AppState {
             target_pid: None,
             fx: EffectManager::default(),
             last_tick: Instant::now(),
+            global_cpu_history: VecDeque::with_capacity(MAX_HISTORY_POINTS),
+            global_mem_history: VecDeque::with_capacity(MAX_HISTORY_POINTS),
         }
     }
 
@@ -73,7 +84,6 @@ impl AppState {
         
         self.sorted_pids = procs.into_iter().map(|(pid, _)| *pid).collect();
         
-        // Prevent selection from floating out of bounds if processes die or filter narrows
         if let Some(selected) = self.table_state.selected() {
             if !self.sorted_pids.is_empty() && selected >= self.sorted_pids.len() {
                 self.table_state.select(Some(self.sorted_pids.len() - 1));
@@ -91,12 +101,34 @@ pub fn run_app() -> io::Result<()> {
 
     let mut app = AppState::new();
     let mut engine = Engine::new();
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = mpsc::channel::<TelemetryFrame>();
 
+    // Background Thread Loop: Synthesizes system-wide metrics alongside processes
     thread::spawn(move || {
+        let mut prev_jiffies = read_global_jiffies().unwrap_or(CpuJiffies { total: 0, idle: 0 });
         loop {
-            let data = engine.tick();
-            if tx.send(data).is_err() { break; }
+            let (procs, cpu) = engine.tick();
+            
+            let mut global_cpu = 0.0;
+            if let Some(curr_jiffies) = read_global_jiffies() {
+                let total_d = curr_jiffies.total.saturating_sub(prev_jiffies.total);
+                let idle_d = curr_jiffies.idle.saturating_sub(prev_jiffies.idle);
+                if total_d > 0 {
+                    global_cpu = ((total_d - idle_d) as f32 / total_d as f32) * 100.0;
+                }
+                prev_jiffies = curr_jiffies;
+            }
+
+            let global_mem = read_global_mem_percent();
+
+            let frame = TelemetryFrame {
+                processes: procs,
+                cpu_map: cpu,
+                global_cpu_utilization: global_cpu,
+                global_mem_utilization: global_mem,
+            };
+
+            if tx.send(frame).is_err() { break; }
             thread::sleep(Duration::from_millis(500));
         }
     });
@@ -106,15 +138,26 @@ pub fn run_app() -> io::Result<()> {
         let dt = now.duration_since(app.last_tick);
         app.last_tick = now;
 
-        if let Ok((procs, cpu)) = rx.try_recv() {
+        if let Ok(frame) = rx.try_recv() {
             if !app.paused {
-                app.processes = procs;
-                app.cpu_map = cpu;
+                app.processes = frame.processes;
+                app.cpu_map = frame.cpu_map;
+                
+                // Shift time-series rolling history constraints
+                if app.global_cpu_history.len() >= MAX_HISTORY_POINTS {
+                    app.global_cpu_history.pop_front();
+                }
+                app.global_cpu_history.push_back(frame.global_cpu_utilization);
+
+                if app.global_mem_history.len() >= MAX_HISTORY_POINTS {
+                    app.global_mem_history.pop_front();
+                }
+                app.global_mem_history.push_back(frame.global_mem_utilization);
+
                 app.update_sorted_pids();
             }
         }
 
-        // Adaptive Polling: Save system resources unless animating
         let timeout = if app.fx.is_running() {
             Duration::from_millis(16)
         } else {
@@ -134,7 +177,7 @@ pub fn run_app() -> io::Result<()> {
                 if app.input_mode == InputMode::Filter {
                     app.filter_query.push(c);
                     app.update_sorted_pids();
-                    app.table_state.select(Some(0)); // Reset cursor on search
+                    app.table_state.select(Some(0));
                 }
             }
             InputEvent::Backspace => {
@@ -186,7 +229,6 @@ pub fn run_app() -> io::Result<()> {
             _ => {}
         }
 
-        // Keep target_pid mapped to the active UI selection
         if let Some(idx) = app.table_state.selected() {
             app.target_pid = app.sorted_pids.get(idx).copied();
         }
