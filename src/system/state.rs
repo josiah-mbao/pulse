@@ -4,11 +4,22 @@ use std::io::{BufRead, BufReader};
 use crate::system::collector::RawProcess;
 use crate::system::memory::{read_memory, memory_usage_percent};
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ProcessSnapshot {
     pub name: String,
     pub cpu_time: u64,
     pub memory_kb: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct InterfaceSnapshot {
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NetworkStats {
+    pub interfaces: HashMap<String, InterfaceSnapshot>,
 }
 
 #[derive(Clone)]
@@ -25,6 +36,7 @@ pub struct TelemetryFrame {
     pub cpu_map: HashMap<u32, f32>,
     pub global_cpu_utilization: f32,
     pub global_mem_utilization: f32,
+    pub network: NetworkStats,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -107,4 +119,96 @@ pub fn read_global_jiffies() -> Option<CpuJiffies> {
 pub fn read_global_mem_percent() -> f32 {
     let (total, avail) = read_memory();
     memory_usage_percent(total, avail)
+}
+
+/// Highly efficient, zero-allocation path function for parsing /proc/net/dev
+pub fn read_network_dev() -> Option<NetworkStats> {
+    let file = File::open("/proc/net/dev").ok()?;
+    let reader = BufReader::new(file);
+    parse_network_stats(reader)
+}
+
+fn parse_network_stats<R: BufRead>(mut reader: R) -> Option<NetworkStats> {
+    let mut stats = NetworkStats::default();
+    let mut line = String::with_capacity(256);
+
+    // Skip the two header lines
+    for _ in 0..2 {
+        line.clear();
+        reader.read_line(&mut line).ok()?;
+    }
+
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+
+                let mut parts = trimmed.split_whitespace();
+                if let Some(iface_part) = parts.next() {
+                    // Trim trailing colon from interface strings
+                    let name = iface_part.trim_end_matches(':');
+
+                    let rx_bytes = parts.next()
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .unwrap_or(0);
+
+                    // Skip 7 fields to reach tx_bytes (index 9 overall in /proc/net/dev line)
+                    // Fields skipped: packets, errs, drop, fifo, frame, compressed, multicast
+                    let tx_bytes = parts.nth(7)
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .unwrap_or(0);
+
+                    // Filter out interfaces where both rx and tx are zero to prevent redundant footprint allocations
+                    if rx_bytes > 0 || tx_bytes > 0 {
+                        stats.interfaces.insert(
+                            name.to_string(),
+                            InterfaceSnapshot { rx_bytes, tx_bytes },
+                        );
+                    }
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    Some(stats)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_parse_network_dev_logic() {
+        let mock_proc_net_dev = r#"Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 100 0 0 0 0 0 0 0 200 0 0 0 0 0 0 0
+  eth0: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+  wlan0: 500 0 0 0 0 0 0 0 600 0 0 0 0 0 0 0
+"#;
+        let reader = Cursor::new(mock_proc_net_dev);
+        let stats = parse_network_stats(reader).expect("Failed to parse mock network data");
+
+        // Verify "lo" interface: rx=100, tx=200
+        let lo = stats.interfaces.get("lo").expect("lo interface missing");
+        assert_eq!(lo.rx_bytes, 100);
+        assert_eq!(lo.tx_bytes, 200);
+
+        // Verify "eth0" is filtered out (both rx and tx are 0)
+        assert!(stats.interfaces.get("eth0").is_none());
+
+        // Verify "wlan0" interface: rx=500, tx=600
+        let wlan0 = stats.interfaces.get("wlan0").expect("wlan0 interface missing");
+        assert_eq!(wlan0.rx_bytes, 500);
+        assert_eq!(wlan0.tx_bytes, 600);
+
+        // Ensure only non-zero interfaces are kept
+        assert_eq!(stats.interfaces.len(), 2);
+    }
 }

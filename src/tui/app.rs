@@ -8,7 +8,7 @@ use tachyonfx::EffectManager;
 
 use pulse::system::{
     engine::Engine, 
-    state::{ProcessSnapshot, TelemetryFrame, CpuJiffies, read_global_jiffies, read_global_mem_percent}
+    state::{ProcessSnapshot, TelemetryFrame, CpuJiffies, read_global_jiffies, read_global_mem_percent, read_network_dev}
 };
 use crate::tui::renderer::render;
 use crate::tui::input::{read_input, InputEvent};
@@ -126,6 +126,7 @@ pub fn run_app() -> io::Result<()> {
                 cpu_map: cpu,
                 global_cpu_utilization: global_cpu,
                 global_mem_utilization: global_mem,
+                network: read_network_dev().unwrap_or_default(),
             };
 
             if tx.send(frame).is_err() { break; }
