@@ -8,7 +8,7 @@ use tachyonfx::EffectManager;
 
 use pulse::system::{
     engine::Engine, 
-    state::{ProcessSnapshot, TelemetryFrame, CpuJiffies, read_global_jiffies, read_global_mem_percent, read_network_dev}
+    state::{ProcessSnapshot, TelemetryFrame, CpuJiffies, NetworkStats, read_global_jiffies, read_global_mem_percent, read_network_dev}
 };
 use crate::tui::renderer::render;
 use crate::tui::input::{read_input, InputEvent};
@@ -41,6 +41,10 @@ pub struct AppState {
     // Time-series buffers for global telemetry
     pub global_cpu_history: VecDeque<f32>,
     pub global_mem_history: VecDeque<f32>,
+
+    // Network monitoring
+    pub prev_network: NetworkStats,
+    pub current_speeds: HashMap<String, (f32, f32)>,
 }
 
 impl AppState {
@@ -63,6 +67,8 @@ impl AppState {
             last_tick: Instant::now(),
             global_cpu_history: VecDeque::with_capacity(MAX_HISTORY_POINTS),
             global_mem_history: VecDeque::with_capacity(MAX_HISTORY_POINTS),
+            prev_network: NetworkStats::default(),
+            current_speeds: HashMap::new(),
         }
     }
 
@@ -154,6 +160,22 @@ pub fn run_app() -> io::Result<()> {
                     app.global_mem_history.pop_front();
                 }
                 app.global_mem_history.push_back(frame.global_mem_utilization);
+
+                // Calculate network speeds (KiB/s) based on 500ms sampling window
+                app.current_speeds.clear();
+                for (name, curr) in &frame.network.interfaces {
+                    if let Some(prev) = app.prev_network.interfaces.get(name) {
+                        let rx_delta = curr.rx_bytes.saturating_sub(prev.rx_bytes);
+                        let tx_delta = curr.tx_bytes.saturating_sub(prev.tx_bytes);
+                        
+                        // Multiply by 2.0 to scale 500ms -> 1s, divide by 1024.0 for KiB
+                        let rx_kib = (rx_delta as f32 * 2.0) / 1024.0;
+                        let tx_kib = (tx_delta as f32 * 2.0) / 1024.0;
+                        
+                        app.current_speeds.insert(name.clone(), (rx_kib, tx_kib));
+                    }
+                }
+                app.prev_network = frame.network;
 
                 app.update_sorted_pids();
             }
