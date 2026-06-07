@@ -88,7 +88,7 @@ fn render_ekg_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
         ])
         .split(area);
 
-    // Dynamic data casting from f32 window points to graphable u64 slices
+    // Top: Global CPU Heartbeat
     let cpu_data: Vec<u64> = app.global_cpu_history.iter().map(|&v| v as u64).collect();
     let cpu_spark = Sparkline::default()
         .block(Block::default()
@@ -99,15 +99,34 @@ fn render_ekg_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
         .style(Style::default().fg(ACCENT_RUST));
     frame.render_widget(cpu_spark, chunks[0]);
 
-    let mem_data: Vec<u64> = app.global_mem_history.iter().map(|&v| v as u64).collect();
-    let mem_spark = Sparkline::default()
+    // Bottom: Disk I/O Velocity
+    let io_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(50),
+            Constraint::Percentage(50),
+        ])
+        .split(chunks[1]);
+
+    let disk_read_data: Vec<u64> = app.disk_read_history.iter().map(|&v| v as u64).collect();
+    let disk_read_spark = Sparkline::default()
         .block(Block::default()
-            .borders(Borders::ALL)
+            .borders(Borders::LEFT | Borders::RIGHT | Borders::TOP)
             .border_style(Style::default().fg(BORDER_MUTED))
-            .title(Span::styled(" Memory Load History (0-100%) ", Style::default().fg(TEXT_PRIMARY))))
-        .data(&mem_data)
-        .style(Style::default().fg(Color::Magenta));
-    frame.render_widget(mem_spark, chunks[1]);
+            .title(Span::styled(" Disk Read Velocity (KiB/s) ", Style::default().fg(TEXT_PRIMARY))))
+        .data(&disk_read_data)
+        .style(Style::default().fg(TEXT_PRIMARY));
+    frame.render_widget(disk_read_spark, io_chunks[0]);
+
+    let disk_write_data: Vec<u64> = app.disk_write_history.iter().map(|&v| v as u64).collect();
+    let disk_write_spark = Sparkline::default()
+        .block(Block::default()
+            .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
+            .border_style(Style::default().fg(BORDER_MUTED))
+            .title(Span::styled(" Disk Write Velocity (KiB/s) ", Style::default().fg(TEXT_PRIMARY))))
+        .data(&disk_write_data)
+        .style(Style::default().fg(TEXT_PRIMARY));
+    frame.render_widget(disk_write_spark, io_chunks[1]);
 }
 
 fn render_sentinel_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {

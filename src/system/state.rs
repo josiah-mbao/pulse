@@ -37,6 +37,8 @@ pub struct TelemetryFrame {
     pub global_cpu_utilization: f32,
     pub global_mem_utilization: f32,
     pub network: NetworkStats,
+    pub disk_sectors_read: u64,
+    pub disk_sectors_written: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -177,6 +179,43 @@ fn parse_network_stats<R: BufRead>(mut reader: R) -> Option<NetworkStats> {
     }
 
     Some(stats)
+}
+
+/// Aggregates sectors read/written from /proc/diskstats across physical drives
+pub fn read_disk_io() -> Option<(u64, u64)> {
+    let file = File::open("/proc/diskstats").ok()?;
+    let mut reader = BufReader::new(file);
+    let mut line = String::with_capacity(256);
+    let mut total_read = 0;
+    let mut total_written = 0;
+
+    loop {
+        line.clear();
+        if reader.read_line(&mut line).ok()? == 0 { break; }
+        
+        let mut parts = line.split_whitespace();
+        let _major = parts.next();
+        let _minor = parts.next();
+        let name = match parts.next() {
+            Some(n) => n,
+            None => continue,
+        };
+
+        // Ignore non-physical or virtual block devices
+        if name.starts_with("loop") || name.starts_with("ram") || name.starts_with("zram") {
+            continue;
+        }
+
+        // Field 6: Sectors Read (index 2 after major/minor/name)
+        // Field 10: Sectors Written (index 6 after major/minor/name)
+        let s_read = parts.nth(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+        let s_write = parts.nth(3).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+
+        total_read += s_read;
+        total_written += s_write;
+    }
+
+    Some((total_read, total_written))
 }
 
 #[cfg(test)]
