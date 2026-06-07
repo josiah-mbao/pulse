@@ -1,7 +1,13 @@
 # Pulse
 A lightweight Linux system observability TUI written in Rust.
 
-![Demo of Pulse](docs/demo.gif)
+### 🎭 Visual Evolution
+
+| Original (v0.1) | v0.7 ("Zinc & Rust") |
+| :--- | :--- |
+| ![Original Demo](docs/demo.gif) | ![Latest Demo](docs/pulse-demo.gif) |
+
+*Live terminal recordings generated with [asciinema](https://asciinema.org).*
 
 Pulse provides high-density system and process-level metrics by reading directly from Linux kernel virtual filesystems and computing normalized deltas using a decoupled, asynchronous pipeline.
 
