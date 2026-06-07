@@ -87,12 +87,42 @@ fn render_ekg_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
     frame.render_widget(mem_spark, chunks[1]);
 }
 
-fn render_sentinel_tab(frame: &mut Frame, _app: &mut AppState, area: Rect) {
-    let block = Block::default().borders(Borders::ALL).title(" Sentinel Perimeter ");
-    let placeholder = Paragraph::new("Sentinel Radar Scanning... Monitoring network telemetry.")
-        .style(Style::default().fg(Color::DarkGray))
-        .block(block);
-    frame.render_widget(placeholder, area);
+fn render_sentinel_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Sentinel Interface Telemetry Pipeline ");
+
+    if app.current_speeds.is_empty() {
+        let placeholder = Paragraph::new("Sentinel Radar Scanning... No active network interfaces detected.")
+            .style(Style::default().fg(Color::DarkGray))
+            .block(block);
+        frame.render_widget(placeholder, area);
+        return;
+    }
+
+    let mut speeds: Vec<_> = app.current_speeds.iter().collect();
+    speeds.sort_by(|a, b| a.0.cmp(b.0));
+
+    let rows: Vec<Row> = speeds.iter().map(|(name, (rx, tx))| {
+        Row::new(vec![
+            format!("󰛳 {}", name),
+            format!("{:.2} KiB/s", rx),
+            format!("{:.2} KiB/s", tx),
+        ]).style(Style::default().fg(Color::White))
+    }).collect();
+
+    let table = Table::new(rows, [
+        Constraint::Percentage(40),
+        Constraint::Percentage(30),
+        Constraint::Percentage(30),
+    ])
+    .header(
+        Row::new(vec!["INTERFACE", "RX INCOMING RATE", "TX OUTGOING RATE"])
+            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+    )
+    .block(block);
+
+    frame.render_widget(table, area);
 }
 
 fn render_stats(frame: &mut Frame, _app: &AppState, area: Rect) {
