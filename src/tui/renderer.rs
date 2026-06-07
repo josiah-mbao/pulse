@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style, Modifier},
     widgets::{Block, Borders, Row, Table, Paragraph, Tabs, Sparkline},
-    text::Span,
+    text::{Span, Line},
     Frame,
 };
 use crate::tui::app::{AppState, InputMode, Tab};
@@ -130,13 +130,26 @@ fn render_ekg_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
 }
 
 fn render_sentinel_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(50),
+            Constraint::Percentage(50),
+        ])
+        .split(area);
+
+    render_sentinel_table(frame, app, chunks[0]);
+    render_sentinel_stages(frame, app, chunks[1]);
+}
+
+fn render_sentinel_table(frame: &mut Frame, app: &AppState, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(BORDER_MUTED))
-        .title(Span::styled(" Sentinel Interface Telemetry Pipeline ", Style::default().fg(TEXT_PRIMARY)));
+        .title(Span::styled(" Sentinel Network Pipeline ", Style::default().fg(TEXT_PRIMARY)));
 
     if app.current_speeds.is_empty() {
-        let placeholder = Paragraph::new("Sentinel Radar Scanning... No active network interfaces detected.")
+        let placeholder = Paragraph::new("Sentinel Radar Scanning...")
             .style(Style::default().fg(TEXT_MUTED))
             .block(block);
         frame.render_widget(placeholder, area);
@@ -160,12 +173,105 @@ fn render_sentinel_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
         Constraint::Percentage(30),
     ])
     .header(
-        Row::new(vec!["INTERFACE", "RX INCOMING RATE", "TX OUTGOING RATE"])
+        Row::new(vec!["INTERFACE", "RX RATE", "TX RATE"])
             .style(Style::default().fg(ACCENT_RUST).add_modifier(Modifier::BOLD))
     )
     .block(block);
 
     frame.render_widget(table, area);
+}
+
+fn render_sentinel_stages(frame: &mut Frame, app: &AppState, area: Rect) {
+    let mut ifaces: Vec<_> = app.prev_network.interfaces.iter().collect();
+    ifaces.sort_by(|a, b| a.0.cmp(b.0));
+
+    if ifaces.is_empty() {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(BORDER_MUTED))
+            .title(Span::styled(" Network Health Matrix ", Style::default().fg(TEXT_PRIMARY)));
+        let placeholder = Paragraph::new("Waiting for interface telemetry...")
+            .style(Style::default().fg(TEXT_MUTED))
+            .block(block);
+        frame.render_widget(placeholder, area);
+        return;
+    }
+
+    // Split area into equal stages for each interface
+    let constraints: Vec<_> = ifaces.iter().map(|_| Constraint::Ratio(1, ifaces.len() as u32)).collect();
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(area);
+
+    for (i, (name, snap)) in ifaces.into_iter().enumerate() {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(BORDER_MUTED))
+            .title(Span::styled(format!(" 󰛳 {} ", name), Style::default().fg(ACCENT_RUST).add_modifier(Modifier::BOLD)));
+        
+        let inner_area = block.inner(chunks[i]);
+        frame.render_widget(block, chunks[i]);
+
+        let inner_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // Status & Errors
+                Constraint::Min(2),    // Throughput Indicators
+                Constraint::Length(1), // Cumulative Volume
+            ])
+            .margin(1)
+            .split(inner_area);
+
+        // 1. Status & Errors
+        let is_up = snap.operstate == "up" || snap.operstate == "unknown";
+        let status_color = if is_up { Color::Green } else { COLOR_CRIMSON };
+        let status_line = Line::from(vec![
+            Span::styled("● ", Style::default().fg(status_color)),
+            Span::styled(snap.operstate.to_uppercase(), Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
+            Span::styled(" | ", Style::default().fg(BORDER_MUTED)),
+            Span::styled("RX_ERRORS: ", Style::default().fg(TEXT_MUTED)),
+            Span::styled(snap.rx_errors.to_string(), Style::default().fg(if snap.rx_errors > 0 { COLOR_CRIMSON } else { TEXT_PRIMARY })),
+        ]);
+        frame.render_widget(Paragraph::new(status_line), inner_chunks[0]);
+
+        // 2. Throughput Indicators (Mock Bars)
+        let (rx_rate, tx_rate) = app.current_speeds.get(name).cloned().unwrap_or((0.0, 0.0));
+        
+        let rx_bar_len = ((rx_rate / 1024.0).min(1.0) * (inner_chunks[1].width as f32 - 15.0)) as usize;
+        let tx_bar_len = ((tx_rate / 1024.0).min(1.0) * (inner_chunks[1].width as f32 - 15.0)) as usize;
+
+        let rx_line = Line::from(vec![
+            Span::styled("RX ", Style::default().fg(TEXT_MUTED)),
+            Span::styled(format!("{:>8.1} KiB/s ", rx_rate), Style::default().fg(TEXT_PRIMARY)),
+            Span::styled("█".repeat(rx_bar_len), Style::default().fg(ACCENT_RUST)),
+        ]);
+        let tx_line = Line::from(vec![
+            Span::styled("TX ", Style::default().fg(TEXT_MUTED)),
+            Span::styled(format!("{:>8.1} KiB/s ", tx_rate), Style::default().fg(TEXT_PRIMARY)),
+            Span::styled("█".repeat(tx_bar_len), Style::default().fg(TEXT_MUTED)),
+        ]);
+        frame.render_widget(Paragraph::new(vec![rx_line, tx_line]), inner_chunks[1]);
+
+        // 3. Cumulative Volume
+        let vol_line = Line::from(vec![
+            Span::styled("TOTAL IN: ", Style::default().fg(TEXT_MUTED)),
+            Span::styled(format_bytes(snap.rx_bytes), Style::default().fg(TEXT_PRIMARY)),
+            Span::styled("   TOTAL OUT: ", Style::default().fg(TEXT_MUTED)),
+            Span::styled(format_bytes(snap.tx_bytes), Style::default().fg(TEXT_PRIMARY)),
+        ]);
+        frame.render_widget(Paragraph::new(vol_line), inner_chunks[2]);
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    if bytes > 1024 * 1024 * 1024 {
+        format!("{:.2} GiB", bytes as f32 / (1024.0 * 1024.0 * 1024.0))
+    } else if bytes > 1024 * 1024 {
+        format!("{:.2} MiB", bytes as f32 / (1024.0 * 1024.0))
+    } else {
+        format!("{:.2} KiB", bytes as f32 / 1024.0)
+    }
 }
 
 fn render_stats(frame: &mut Frame, _app: &AppState, area: Rect) {

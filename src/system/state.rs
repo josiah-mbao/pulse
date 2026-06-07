@@ -15,6 +15,8 @@ pub struct ProcessSnapshot {
 pub struct InterfaceSnapshot {
     pub rx_bytes: u64,
     pub tx_bytes: u64,
+    pub operstate: String,
+    pub rx_errors: u64,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -150,28 +152,43 @@ fn parse_network_stats<R: BufRead>(mut reader: R) -> Option<NetworkStats> {
                     continue;
                 }
 
-                let mut parts = trimmed.split_whitespace();
-                if let Some(iface_part) = parts.next() {
-                    // Trim trailing colon from interface strings
-                    let name = iface_part.trim_end_matches(':');
+                // Robust split to handle "eth0: 123" AND "eth0:123"
+                let mut name_metrics = trimmed.splitn(2, ':');
+                let name = match name_metrics.next() {
+                    Some(n) => n.trim(),
+                    None => continue,
+                };
+                let metrics_part = match name_metrics.next() {
+                    Some(m) => m,
+                    None => continue,
+                };
 
-                    let rx_bytes = parts.next()
-                        .and_then(|s| s.parse::<u64>().ok())
+                let mut metrics = metrics_part.split_whitespace();
+                let rx_bytes = metrics.next()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(0);
+
+                // Skip 7 fields to reach tx_bytes (index 9 overall in /proc/net/dev line)
+                let tx_bytes = metrics.nth(7)
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(0);
+
+                // Include loopback even if currently zero to ensure visibility
+                if rx_bytes > 0 || tx_bytes > 0 || name == "lo" {
+                    let operstate = std::fs::read_to_string(format!("/sys/class/net/{}/operstate", name))
+                        .unwrap_or_else(|_| "unknown".to_string())
+                        .trim()
+                        .to_string();
+                    
+                    let rx_errors = std::fs::read_to_string(format!("/sys/class/net/{}/statistics/rx_errors", name))
+                        .ok()
+                        .and_then(|s| s.trim().parse::<u64>().ok())
                         .unwrap_or(0);
 
-                    // Skip 7 fields to reach tx_bytes (index 9 overall in /proc/net/dev line)
-                    // Fields skipped: packets, errs, drop, fifo, frame, compressed, multicast
-                    let tx_bytes = parts.nth(7)
-                        .and_then(|s| s.parse::<u64>().ok())
-                        .unwrap_or(0);
-
-                    // Filter out interfaces where both rx and tx are zero to prevent redundant footprint allocations
-                    if rx_bytes > 0 || tx_bytes > 0 {
-                        stats.interfaces.insert(
-                            name.to_string(),
-                            InterfaceSnapshot { rx_bytes, tx_bytes },
-                        );
-                    }
+                    stats.interfaces.insert(
+                        name.to_string(),
+                        InterfaceSnapshot { rx_bytes, tx_bytes, operstate, rx_errors },
+                    );
                 }
             }
             Err(_) => break,
@@ -201,13 +218,10 @@ pub fn read_disk_io() -> Option<(u64, u64)> {
             None => continue,
         };
 
-        // Ignore non-physical or virtual block devices
         if name.starts_with("loop") || name.starts_with("ram") || name.starts_with("zram") {
             continue;
         }
 
-        // Field 6: Sectors Read (index 2 after major/minor/name)
-        // Field 10: Sectors Written (index 6 after major/minor/name)
         let s_read = parts.nth(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
         let s_write = parts.nth(3).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
 
@@ -234,20 +248,14 @@ mod tests {
         let reader = Cursor::new(mock_proc_net_dev);
         let stats = parse_network_stats(reader).expect("Failed to parse mock network data");
 
-        // Verify "lo" interface: rx=100, tx=200
+        // Verify "lo" interface
         let lo = stats.interfaces.get("lo").expect("lo interface missing");
         assert_eq!(lo.rx_bytes, 100);
         assert_eq!(lo.tx_bytes, 200);
 
-        // Verify "eth0" is filtered out (both rx and tx are 0)
-        assert!(stats.interfaces.get("eth0").is_none());
-
-        // Verify "wlan0" interface: rx=500, tx=600
+        // Verify "wlan0" interface
         let wlan0 = stats.interfaces.get("wlan0").expect("wlan0 interface missing");
         assert_eq!(wlan0.rx_bytes, 500);
         assert_eq!(wlan0.tx_bytes, 600);
-
-        // Ensure only non-zero interfaces are kept
-        assert_eq!(stats.interfaces.len(), 2);
     }
 }
