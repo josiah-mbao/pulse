@@ -2,6 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style, Modifier},
     widgets::{Block, Borders, Row, Table, Paragraph, Tabs, Sparkline},
+    text::Span,
     Frame,
 };
 use crate::tui::app::{AppState, InputMode, Tab};
@@ -9,7 +10,19 @@ use pulse::system::memory::{read_memory, memory_usage_percent};
 use pulse::system::uptime::read_uptime;
 use pulse::system::process::get_extra_info;
 
+// Zinc & Rust UI Tokens
+pub const BG_CANVAS: Color = Color::Rgb(9, 9, 11);
+pub const BORDER_MUTED: Color = Color::Rgb(39, 39, 42);
+pub const TEXT_PRIMARY: Color = Color::Rgb(250, 250, 250);
+pub const TEXT_MUTED: Color = Color::Rgb(161, 161, 170);
+pub const ACCENT_RUST: Color = Color::Rgb(244, 102, 35);
+
 pub fn render(frame: &mut Frame, app: &mut AppState) {
+    let area = frame.area();
+    
+    // Root background filling
+    frame.render_widget(Block::default().style(Style::default().bg(BG_CANVAS)), area);
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -18,7 +31,7 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
             Constraint::Min(10),   // Content Area
             Constraint::Length(1), // Footer
         ])
-        .split(frame.area());
+        .split(area);
 
     render_tabs(frame, app, chunks[0]);
     render_stats(frame, app, chunks[1]);
@@ -33,7 +46,7 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
 }
 
 fn render_tabs(frame: &mut Frame, app: &AppState, area: Rect) {
-    let titles = vec![" [1] FLEET ", " [2] EKG ", " [3] SENTINEL "];
+    let titles = vec![" FLEET ", " EKG ", " SENTINEL "];
     let index = match app.active_tab {
         Tab::Fleet => 0,
         Tab::Ekg => 1,
@@ -41,10 +54,10 @@ fn render_tabs(frame: &mut Frame, app: &AppState, area: Rect) {
     };
 
     let tabs = Tabs::new(titles)
-        .block(Block::default().borders(Borders::ALL).title(" Pulse Lenses "))
         .select(index)
-        .highlight_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-        .divider("|");
+        .style(Style::default().fg(TEXT_MUTED))
+        .highlight_style(Style::default().fg(ACCENT_RUST).add_modifier(Modifier::BOLD))
+        .divider(Span::styled("|", Style::default().fg(BORDER_MUTED)));
 
     frame.render_widget(tabs, area);
 }
@@ -74,14 +87,20 @@ fn render_ekg_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
     // Dynamic data casting from f32 window points to graphable u64 slices
     let cpu_data: Vec<u64> = app.global_cpu_history.iter().map(|&v| v as u64).collect();
     let cpu_spark = Sparkline::default()
-        .block(Block::default().borders(Borders::ALL).title(" Global CPU Heartbeat (0-100%) "))
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(BORDER_MUTED))
+            .title(Span::styled(" Global CPU Heartbeat (0-100%) ", Style::default().fg(TEXT_PRIMARY))))
         .data(&cpu_data)
-        .style(Style::default().fg(Color::Green));
+        .style(Style::default().fg(ACCENT_RUST));
     frame.render_widget(cpu_spark, chunks[0]);
 
     let mem_data: Vec<u64> = app.global_mem_history.iter().map(|&v| v as u64).collect();
     let mem_spark = Sparkline::default()
-        .block(Block::default().borders(Borders::ALL).title(" Memory Load History (0-100%) "))
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(BORDER_MUTED))
+            .title(Span::styled(" Memory Load History (0-100%) ", Style::default().fg(TEXT_PRIMARY))))
         .data(&mem_data)
         .style(Style::default().fg(Color::Magenta));
     frame.render_widget(mem_spark, chunks[1]);
@@ -90,11 +109,12 @@ fn render_ekg_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
 fn render_sentinel_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Sentinel Interface Telemetry Pipeline ");
+        .border_style(Style::default().fg(BORDER_MUTED))
+        .title(Span::styled(" Sentinel Interface Telemetry Pipeline ", Style::default().fg(TEXT_PRIMARY)));
 
     if app.current_speeds.is_empty() {
         let placeholder = Paragraph::new("Sentinel Radar Scanning... No active network interfaces detected.")
-            .style(Style::default().fg(Color::DarkGray))
+            .style(Style::default().fg(TEXT_MUTED))
             .block(block);
         frame.render_widget(placeholder, area);
         return;
@@ -108,7 +128,7 @@ fn render_sentinel_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
             format!("󰛳 {}", name),
             format!("{:.2} KiB/s", rx),
             format!("{:.2} KiB/s", tx),
-        ]).style(Style::default().fg(Color::White))
+        ]).style(Style::default().fg(TEXT_PRIMARY))
     }).collect();
 
     let table = Table::new(rows, [
@@ -118,7 +138,7 @@ fn render_sentinel_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
     ])
     .header(
         Row::new(vec!["INTERFACE", "RX INCOMING RATE", "TX OUTGOING RATE"])
-            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+            .style(Style::default().fg(ACCENT_RUST).add_modifier(Modifier::BOLD))
     )
     .block(block);
 
@@ -135,7 +155,10 @@ fn render_stats(frame: &mut Frame, _app: &AppState, area: Rect) {
         uptime, mem_p, total.saturating_sub(avail), total
     );
     
-    let block = Block::default().borders(Borders::ALL);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(BORDER_MUTED))
+        .style(Style::default().fg(TEXT_PRIMARY));
     frame.render_widget(Paragraph::new(stats_text).block(block), area);
 }
 
@@ -157,16 +180,22 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
         Constraint::Length(10),
         Constraint::Length(15),
     ])
-    .header(Row::new(vec!["PID", "NAME", "CPU%", "MEM"]).style(Style::default().fg(Color::Yellow)))
-    .block(Block::default().borders(Borders::ALL).title(" Processes "))
-    .row_highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+    .header(Row::new(vec!["PID", "NAME", "CPU%", "MEM"]).style(Style::default().fg(ACCENT_RUST)))
+    .block(Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(BORDER_MUTED))
+        .title(Span::styled(" Processes ", Style::default().fg(TEXT_PRIMARY))))
+    .row_highlight_style(Style::default().bg(BORDER_MUTED).fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD))
     .highlight_symbol(">> ");
 
     frame.render_stateful_widget(table, area, &mut app.table_state); 
 }
 
 fn render_details(frame: &mut Frame, app: &AppState, area: Rect) {
-    let block = Block::default().borders(Borders::ALL).title(" Inspect ");
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(BORDER_MUTED))
+        .title(Span::styled(" Inspect ", Style::default().fg(TEXT_PRIMARY)));
     
     let content = if let Some(pid) = app.target_pid {
         if let Some(proc) = app.processes.get(&pid) {
@@ -183,7 +212,7 @@ fn render_details(frame: &mut Frame, app: &AppState, area: Rect) {
         "Select a process to inspect internals.".to_string()
     };
 
-    frame.render_widget(Paragraph::new(content).block(block), area);
+    frame.render_widget(Paragraph::new(content).style(Style::default().fg(TEXT_PRIMARY)).block(block), area);
 }
 
 fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
@@ -200,9 +229,9 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     };
     
     let style = if app.paused {
-        Style::default().bg(Color::Yellow).fg(Color::Black)
+        Style::default().bg(Color::Rgb(250, 204, 21)).fg(Color::Black)
     } else {
-        Style::default().bg(Color::Cyan).fg(Color::Black)
+        Style::default().bg(ACCENT_RUST).fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)
     };
     
     frame.render_widget(Paragraph::new(text).style(style), area);

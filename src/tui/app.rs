@@ -3,14 +3,14 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, Terminal, widgets::TableState};
-use tachyonfx::EffectManager;
+use ratatui::{backend::CrosstermBackend, Terminal, widgets::TableState, layout::Rect};
+use tachyonfx::{EffectManager, fx, Interpolation};
 
 use pulse::system::{
     engine::Engine, 
     state::{ProcessSnapshot, TelemetryFrame, CpuJiffies, NetworkStats, read_global_jiffies, read_global_mem_percent, read_network_dev}
 };
-use crate::tui::renderer::render;
+use crate::tui::renderer::{render, BG_CANVAS};
 use crate::tui::input::{read_input, InputEvent};
 
 const MAX_HISTORY_POINTS: usize = 200;
@@ -189,7 +189,19 @@ pub fn run_app() -> io::Result<()> {
 
         match read_input(timeout) {
             InputEvent::Quit => break,
-            InputEvent::SwitchTab(tab) => app.active_tab = tab,
+            InputEvent::SwitchTab(tab) => {
+                if app.active_tab != tab {
+                    app.active_tab = tab;
+                    if let Ok(size) = terminal.size() {
+                        // The main rendering area starts below tab bar (3) and stats (3).
+                        let main_area = Rect::new(0, 6, size.width, size.height.saturating_sub(7));
+                        app.fx.add_effect(
+                            fx::fade_from(BG_CANVAS, BG_CANVAS, (150, Interpolation::QuadOut))
+                                .with_area(main_area)
+                        );
+                    }
+                }
+            }
             InputEvent::EnterFilter => app.input_mode = InputMode::Filter,
             InputEvent::Esc => {
                 app.input_mode = InputMode::Normal;
