@@ -8,7 +8,7 @@ use tachyonfx::{EffectManager, fx, Interpolation};
 
 use pulse::system::{
     engine::Engine, 
-    state::{ProcessSnapshot, TelemetryFrame, CpuJiffies, NetworkStats, read_global_jiffies, read_global_mem_percent, read_network_dev}
+    state::{ProcessSnapshot, TelemetryFrame, CpuJiffies, NetworkStats, read_global_jiffies, read_global_mem_percent, read_network_dev, read_disk_io}
 };
 use crate::tui::renderer::{render, BG_CANVAS};
 use crate::tui::input::{read_input, InputEvent};
@@ -41,9 +41,13 @@ pub struct AppState {
     // Time-series buffers for global telemetry
     pub global_cpu_history: VecDeque<f32>,
     pub global_mem_history: VecDeque<f32>,
+    pub disk_read_history: VecDeque<f32>,
+    pub disk_write_history: VecDeque<f32>,
 
-    // Network monitoring
+    // Diff counters
     pub prev_network: NetworkStats,
+    pub prev_disk_read: u64,
+    pub prev_disk_write: u64,
     pub current_speeds: HashMap<String, (f32, f32)>,
 }
 
@@ -67,7 +71,11 @@ impl AppState {
             last_tick: Instant::now(),
             global_cpu_history: VecDeque::with_capacity(MAX_HISTORY_POINTS),
             global_mem_history: VecDeque::with_capacity(MAX_HISTORY_POINTS),
+            disk_read_history: VecDeque::with_capacity(MAX_HISTORY_POINTS),
+            disk_write_history: VecDeque::with_capacity(MAX_HISTORY_POINTS),
             prev_network: NetworkStats::default(),
+            prev_disk_read: 0,
+            prev_disk_write: 0,
             current_speeds: HashMap::new(),
         }
     }
@@ -126,6 +134,7 @@ pub fn run_app() -> io::Result<()> {
             }
 
             let global_mem = read_global_mem_percent();
+            let (disk_r, disk_w) = read_disk_io().unwrap_or((0, 0));
 
             let frame = TelemetryFrame {
                 processes: procs,
@@ -133,6 +142,8 @@ pub fn run_app() -> io::Result<()> {
                 global_cpu_utilization: global_cpu,
                 global_mem_utilization: global_mem,
                 network: read_network_dev().unwrap_or_default(),
+                disk_sectors_read: disk_r,
+                disk_sectors_written: disk_w,
             };
 
             if tx.send(frame).is_err() { break; }
@@ -160,6 +171,21 @@ pub fn run_app() -> io::Result<()> {
                     app.global_mem_history.pop_front();
                 }
                 app.global_mem_history.push_back(frame.global_mem_utilization);
+
+                // Disk Velocity Calculation (KiB/s)
+                // 1 sector = 512 bytes = 0.5 KiB. Sample every 500ms -> KiB/s = delta_sectors * 0.5 * 2 = delta_sectors
+                if app.prev_disk_read > 0 || app.prev_disk_write > 0 {
+                    let r_delta = frame.disk_sectors_read.saturating_sub(app.prev_disk_read) as f32;
+                    let w_delta = frame.disk_sectors_written.saturating_sub(app.prev_disk_write) as f32;
+
+                    if app.disk_read_history.len() >= MAX_HISTORY_POINTS { app.disk_read_history.pop_front(); }
+                    app.disk_read_history.push_back(r_delta);
+
+                    if app.disk_write_history.len() >= MAX_HISTORY_POINTS { app.disk_write_history.pop_front(); }
+                    app.disk_write_history.push_back(w_delta);
+                }
+                app.prev_disk_read = frame.disk_sectors_read;
+                app.prev_disk_write = frame.disk_sectors_written;
 
                 // Calculate network speeds (KiB/s) based on 500ms sampling window
                 app.current_speeds.clear();
