@@ -17,6 +17,10 @@ pub const TEXT_PRIMARY: Color = Color::Rgb(250, 250, 250);
 pub const TEXT_MUTED: Color = Color::Rgb(161, 161, 170);
 pub const ACCENT_RUST: Color = Color::Rgb(244, 102, 35);
 
+// Semantic Alert Tokens
+pub const COLOR_CRIMSON: Color = Color::Rgb(239, 68, 68);
+pub const COLOR_AMBER: Color = Color::Rgb(245, 158, 11);
+
 pub fn render(frame: &mut Frame, app: &mut AppState) {
     let area = frame.area();
     
@@ -165,13 +169,23 @@ fn render_stats(frame: &mut Frame, _app: &AppState, area: Rect) {
 fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
     let rows: Vec<Row> = app.sorted_pids.iter().filter_map(|pid| {
         let p = app.processes.get(pid)?;
-        let cpu = app.cpu_map.get(pid).unwrap_or(&0.0);
+        let cpu = *app.cpu_map.get(pid).unwrap_or(&0.0);
+        let mem = p.memory_kb;
+
+        let row_style = if cpu > 70.0 || mem > 1_000_000 {
+            Style::default().fg(COLOR_CRIMSON)
+        } else if cpu > 30.0 || mem > 500_000 {
+            Style::default().fg(COLOR_AMBER)
+        } else {
+            Style::default().fg(TEXT_PRIMARY)
+        };
+
         Some(Row::new(vec![
             pid.to_string(),
             p.name.clone(),
             format!("{:.1}%", cpu),
-            format!("{} KB", p.memory_kb),
-        ]))
+            format!("{} KB", mem),
+        ]).style(row_style))
     }).collect();
 
     let table = Table::new(rows, [
@@ -185,7 +199,7 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(BORDER_MUTED))
         .title(Span::styled(" Processes ", Style::default().fg(TEXT_PRIMARY))))
-    .row_highlight_style(Style::default().bg(BORDER_MUTED).fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD))
+    .row_highlight_style(Style::default().bg(BORDER_MUTED).fg(ACCENT_RUST))
     .highlight_symbol(">> ");
 
     frame.render_stateful_widget(table, area, &mut app.table_state); 
