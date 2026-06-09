@@ -1,10 +1,11 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style, Modifier},
-    widgets::{Block, Borders, Row, Table, Paragraph, Tabs, Sparkline},
+    widgets::{Block, Borders, Row, Table, Paragraph, Tabs, Sparkline, Cell},
     text::{Span, Line},
     Frame,
 };
+use std::collections::HashMap;
 use crate::tui::app::{AppState, InputMode, Tab};
 use pulse::system::memory::{read_memory, memory_usage_percent};
 use pulse::system::uptime::read_uptime;
@@ -67,6 +68,7 @@ fn render_tabs(frame: &mut Frame, app: &AppState, area: Rect) {
 }
 
 fn render_fleet_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
+    // Evaluation of tree_mode is delegated to render_table for structural column rendering
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -292,12 +294,18 @@ fn render_stats(frame: &mut Frame, _app: &AppState, area: Rect) {
 }
 
 fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
-    let rows: Vec<Row> = app.sorted_pids.iter().filter_map(|pid| {
+    let selected_idx = app.table_state.selected();
+    let sorted_pids = &app.sorted_pids;
+    let process_depths = &app.process_depths;
+
+    let rows: Vec<Row> = sorted_pids.iter().enumerate().filter_map(|(idx, pid)| {
         let p = app.processes.get(pid)?;
         let cpu = *app.cpu_map.get(pid).unwrap_or(&0.0);
         let mem = p.memory_kb;
 
-        let row_style = if cpu > 70.0 || mem > 1_000_000 {
+        let is_selected = selected_idx == Some(idx);
+        
+        let mut row_style = if cpu > 70.0 || mem > 1_000_000 {
             Style::default().fg(COLOR_CRIMSON)
         } else if cpu > 30.0 || mem > 500_000 {
             Style::default().fg(COLOR_AMBER)
@@ -305,20 +313,54 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
             Style::default().fg(TEXT_PRIMARY)
         };
 
-        let depth = app.process_depths.get(pid).cloned().unwrap_or(0);
-        let name_col = if app.tree_mode && depth > 0 {
-            format!("{}{} {}", "  ".repeat(depth), "└─", p.name)
+        if is_selected {
+            row_style = row_style.fg(ACCENT_RUST);
+        }
+
+        let mut name_spans = Vec::new();
+        if app.tree_mode {
+            let depth = process_depths.get(pid).cloned().unwrap_or(0);
+            if depth > 0 {
+                for d in 1..=depth {
+                    let prefix_style = if is_selected {
+                        Style::default().fg(ACCENT_RUST)
+                    } else {
+                        Style::default().fg(TEXT_MUTED)
+                    };
+
+                    if d == depth {
+                        if has_more_siblings(idx, d, sorted_pids, process_depths) {
+                            name_spans.push(Span::styled("├─ ", prefix_style));
+                        } else {
+                            name_spans.push(Span::styled("└─ ", prefix_style));
+                        }
+                    } else {
+                        if has_more_siblings(idx, d, sorted_pids, process_depths) {
+                            name_spans.push(Span::styled("│  ", prefix_style));
+                        } else {
+                            name_spans.push(Span::styled("   ", prefix_style));
+                        }
+                    }
+                }
+            }
+        }
+
+        let name_style = if is_selected {
+            Style::default().fg(ACCENT_RUST)
         } else {
-            p.name.clone()
+            Style::default().fg(TEXT_PRIMARY)
         };
+        name_spans.push(Span::styled(p.name.clone(), name_style));
 
         Some(Row::new(vec![
-            pid.to_string(),
-            name_col,
-            format!("{:.1}%", cpu),
-            format!("{} KB", mem),
+            Cell::from(Span::styled(pid.to_string(), row_style)),
+            Cell::from(Line::from(name_spans)),
+            Cell::from(Span::styled(format!("{:.1}%", cpu), row_style)),
+            Cell::from(Span::styled(format!("{} KB", mem), row_style)),
         ]).style(row_style))
     }).collect();
+
+    let title = if app.tree_mode { " Process Tree " } else { " Processes " };
 
     let table = Table::new(rows, [
         Constraint::Length(8),
@@ -330,11 +372,24 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
     .block(Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(BORDER_MUTED))
-        .title(Span::styled(" Processes ", Style::default().fg(TEXT_PRIMARY))))
+        .title(Span::styled(title, Style::default().fg(TEXT_PRIMARY))))
     .row_highlight_style(Style::default().bg(BORDER_MUTED).fg(ACCENT_RUST))
     .highlight_symbol(">> ");
 
     frame.render_stateful_widget(table, area, &mut app.table_state); 
+}
+
+fn has_more_siblings(idx: usize, depth: usize, sorted_pids: &[u32], process_depths: &HashMap<u32, usize>) -> bool {
+    for j in (idx + 1)..sorted_pids.len() {
+        let next_depth = process_depths.get(&sorted_pids[j]).cloned().unwrap_or(0);
+        if next_depth == depth {
+            return true;
+        }
+        if next_depth < depth {
+            return false;
+        }
+    }
+    false
 }
 
 fn render_details(frame: &mut Frame, app: &AppState, area: Rect) {
