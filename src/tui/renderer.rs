@@ -1,7 +1,7 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style, Modifier},
-    widgets::{Block, Borders, Row, Table, Paragraph, Tabs, Sparkline, Cell},
+    widgets::{Block, Borders, Row, Table, Paragraph, Tabs, Sparkline, Cell, Clear},
     text::{Span, Line},
     Frame,
 };
@@ -48,6 +48,10 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
     }
 
     render_footer(frame, app, chunks[3]);
+
+    if app.show_help {
+        render_help_modal(frame, area);
+    }
 }
 
 fn render_tabs(frame: &mut Frame, app: &AppState, area: Rect) {
@@ -430,9 +434,9 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     let (text, style) = match app.input_mode {
         InputMode::Normal => {
             let base_text = if app.paused {
-                " [PAUSED] | [1-3] Lenses | / Filter | s/m Sort | j/k Nav | t Tree | q Quit "
+                " [PAUSED] | [1-3] Lenses | / Filter | s/m Sort | j/k Nav | t Tree | ? Help | q Quit "
             } else {
-                " [1-3] Lenses | / Filter | s/m Sort | j/k Nav | t Tree | q Quit "
+                " [1-3] Lenses | / Filter | s/m Sort | j/k Nav | t Tree | ? Help | q Quit "
             };
             let style = if app.paused {
                 Style::default().bg(Color::Rgb(250, 204, 21)).fg(Color::Black)
@@ -451,4 +455,88 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     };
     
     frame.render_widget(Paragraph::new(text).style(style), area);
+}
+
+fn render_help_modal(frame: &mut Frame, area: Rect) {
+    let popup_area = center_rect(60, 40, area);
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(BORDER_MUTED))
+        .title(Span::styled(" 💡 Pulse Command Configuration Manual ", Style::default().fg(TEXT_PRIMARY)));
+    
+    let help_rows = vec![
+        Row::new(vec![
+            Cell::from(Line::from(vec![
+                Span::styled("[1, 2, 3]", Style::default().fg(ACCENT_RUST)),
+                Span::styled(" Switch Views", Style::default().fg(TEXT_MUTED)),
+            ])),
+            Cell::from(Line::from(vec![
+                Span::styled("[/]", Style::default().fg(ACCENT_RUST)),
+                Span::styled(" Filter Processes", Style::default().fg(TEXT_MUTED)),
+            ])),
+            Cell::from(Line::from(vec![
+                Span::styled("[t]", Style::default().fg(ACCENT_RUST)),
+                Span::styled(" Toggle Tree/Flat Mode", Style::default().fg(TEXT_MUTED)),
+            ])),
+        ]),
+        Row::new(vec![
+            Cell::from(Line::from(vec![
+                Span::styled("[s/m]", Style::default().fg(ACCENT_RUST)),
+                Span::styled(" Sort CPU/Mem", Style::default().fg(TEXT_MUTED)),
+            ])),
+            Cell::from(Line::from(vec![
+                Span::styled("[k]", Style::default().fg(ACCENT_RUST)),
+                Span::styled(" Trigger Kill Dialog", Style::default().fg(TEXT_MUTED)),
+            ])),
+            Cell::from(Line::from(vec![
+                Span::styled("[?]", Style::default().fg(ACCENT_RUST)),
+                Span::styled(" Close Help Overlay", Style::default().fg(TEXT_MUTED)),
+            ])),
+        ]),
+        Row::new(vec![
+            Cell::from(Line::from(vec![
+                Span::styled("[j/k, g/G]", Style::default().fg(ACCENT_RUST)),
+                Span::styled(" Navigate", Style::default().fg(TEXT_MUTED)),
+            ])),
+            Cell::from(Line::from(vec![
+                Span::styled("[p]", Style::default().fg(ACCENT_RUST)),
+                Span::styled(" Pause Telemetry", Style::default().fg(TEXT_MUTED)),
+            ])),
+            Cell::from(Line::from(vec![
+                Span::styled("[q]", Style::default().fg(ACCENT_RUST)),
+                Span::styled(" Terminate Pulse Application", Style::default().fg(TEXT_MUTED)),
+            ])),
+        ]),
+    ];
+
+    let table = Table::new(help_rows, [
+        Constraint::Percentage(33),
+        Constraint::Percentage(33),
+        Constraint::Percentage(34),
+    ])
+    .block(block);
+
+    frame.render_widget(table, popup_area);
+}
+
+fn center_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
 }
