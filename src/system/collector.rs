@@ -3,6 +3,7 @@ use std::fs;
 #[derive(Debug, Clone)]
 pub struct RawProcess {
     pub pid: u32,
+    pub ppid: u32,
     pub name: String,
     pub cpu_time: u64,
     pub memory_kb: u64,
@@ -26,14 +27,17 @@ fn read_memory(pid: u32) -> Option<u64> {
     None
 }
 
-fn read_cpu_time(pid: u32) -> Option<u64> {
+/// Parses CPU time and PPID from /proc/[pid]/stat
+/// PPID is the 4th field (index 3), utime is index 13, stime is index 14.
+fn read_stat_info(pid: u32) -> Option<(u32, u64)> {
     let content = fs::read_to_string(format!("/proc/{}/stat", pid)).ok()?;
     let parts: Vec<&str> = content.split_whitespace().collect();
 
+    let ppid: u32 = parts.get(3)?.parse().ok()?;
     let utime: u64 = parts.get(13)?.parse().ok()?;
     let stime: u64 = parts.get(14)?.parse().ok()?;
 
-    Some(utime + stime)
+    Some((ppid, utime + stime))
 }
 
 pub fn collect_processes() -> Vec<RawProcess> {
@@ -63,13 +67,14 @@ pub fn collect_processes() -> Vec<RawProcess> {
             None => continue,
         };
 
-        let cpu_time = match read_cpu_time(pid) {
-            Some(c) => c,
+        let (ppid, cpu_time) = match read_stat_info(pid) {
+            Some(info) => info,
             None => continue,
         };
 
         out.push(RawProcess {
             pid,
+            ppid,
             name,
             memory_kb,
             cpu_time,

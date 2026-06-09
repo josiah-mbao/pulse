@@ -305,9 +305,16 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
             Style::default().fg(TEXT_PRIMARY)
         };
 
+        let depth = app.process_depths.get(pid).cloned().unwrap_or(0);
+        let name_col = if app.tree_mode && depth > 0 {
+            format!("{}{} {}", "  ".repeat(depth), "└─", p.name)
+        } else {
+            p.name.clone()
+        };
+
         Some(Row::new(vec![
             pid.to_string(),
-            p.name.clone(),
+            name_col,
             format!("{:.1}%", cpu),
             format!("{} KB", mem),
         ]).style(row_style))
@@ -368,9 +375,9 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     let (text, style) = match app.input_mode {
         InputMode::Normal => {
             let base_text = if app.paused {
-                " [PAUSED] | [1-3] Lenses | / Filter | s/m Sort | j/k Nav | q Quit "
+                " [PAUSED] | [1-3] Lenses | / Filter | s/m Sort | j/k Nav | t Tree | q Quit "
             } else {
-                " [1-3] Lenses | / Filter | s/m Sort | j/k Nav | q Quit "
+                " [1-3] Lenses | / Filter | s/m Sort | j/k Nav | t Tree | q Quit "
             };
             let style = if app.paused {
                 Style::default().bg(Color::Rgb(250, 204, 21)).fg(Color::Black)

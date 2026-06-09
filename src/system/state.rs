@@ -6,6 +6,7 @@ use crate::system::memory::{read_memory, memory_usage_percent};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProcessSnapshot {
+    pub ppid: u32,
     pub name: String,
     pub cpu_time: u64,
     pub memory_kb: u64,
@@ -60,6 +61,7 @@ pub fn build_state(
         curr_map.insert(
             p.pid,
             ProcessSnapshot {
+                ppid: p.ppid,
                 name: p.name,
                 cpu_time: p.cpu_time,
                 memory_kb: p.memory_kb,
