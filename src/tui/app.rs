@@ -30,11 +30,13 @@ pub struct AppState {
     pub processes: HashMap<u32, ProcessSnapshot>,
     pub cpu_map: HashMap<u32, f32>,
     pub sorted_pids: Vec<u32>,
+    pub process_depths: HashMap<u32, usize>,
     pub table_state: TableState, 
     pub active_tab: Tab,
     pub sort_mode: SortMode,
     pub input_mode: InputMode,
     pub paused: bool,
+    pub tree_mode: bool,
     pub filter_query: String,
     pub target_pid: Option<u32>,
     pub error_message: Option<(String, Instant)>,
@@ -63,11 +65,13 @@ impl AppState {
             processes: HashMap::new(),
             cpu_map: HashMap::new(),
             sorted_pids: Vec::new(),
+            process_depths: HashMap::new(),
             table_state,
             active_tab: Tab::Fleet,
             sort_mode: SortMode::Cpu,
             input_mode: InputMode::Normal,
             paused: false,
+            tree_mode: false,
             filter_query: String::new(),
             target_pid: None,
             error_message: None,
@@ -85,22 +89,76 @@ impl AppState {
     }
 
     pub fn update_sorted_pids(&mut self) {
-        let mut procs: Vec<_> = self.processes.iter().collect();
-        
-        if !self.filter_query.is_empty() {
-            procs.retain(|(_, p)| p.name.contains(&self.filter_query));
-        }
+        self.process_depths.clear();
+        if !self.tree_mode {
+            let mut procs: Vec<_> = self.processes.iter().collect();
+            
+            if !self.filter_query.is_empty() {
+                procs.retain(|(_, p)| p.name.contains(&self.filter_query));
+            }
 
-        match self.sort_mode {
-            SortMode::Cpu => procs.sort_by(|(a_id, _), (b_id, _)| {
-                let a_cpu = self.cpu_map.get(a_id).unwrap_or(&0.0);
-                let b_cpu = self.cpu_map.get(b_id).unwrap_or(&0.0);
-                b_cpu.partial_cmp(a_cpu).unwrap()
-            }),
-            SortMode::Memory => procs.sort_by(|(_, a), (_, b)| b.memory_kb.cmp(&a.memory_kb)),
+            match self.sort_mode {
+                SortMode::Cpu => procs.sort_by(|(a_id, _), (b_id, _)| {
+                    let a_cpu = self.cpu_map.get(a_id).unwrap_or(&0.0);
+                    let b_cpu = self.cpu_map.get(b_id).unwrap_or(&0.0);
+                    b_cpu.partial_cmp(a_cpu).unwrap()
+                }),
+                SortMode::Memory => procs.sort_by(|(_, a), (_, b)| b.memory_kb.cmp(&a.memory_kb)),
+            }
+            
+            self.sorted_pids = procs.into_iter().map(|(pid, _)| *pid).collect();
+        } else {
+            self.sorted_pids.clear();
+            let mut child_map: HashMap<u32, Vec<u32>> = HashMap::new();
+            let mut roots = Vec::new();
+
+            for (&pid, proc) in &self.processes {
+                if !self.filter_query.is_empty() && !proc.name.contains(&self.filter_query) {
+                    continue;
+                }
+
+                if proc.ppid == 0 || proc.ppid == 1 || !self.processes.contains_key(&proc.ppid) {
+                    roots.push(pid);
+                } else {
+                    child_map.entry(proc.ppid).or_default().push(pid);
+                }
+            }
+
+            // Deterministic sorting of roots and siblings
+            let sort_fn = |a: &u32, b: &u32| {
+                match self.sort_mode {
+                    SortMode::Cpu => {
+                        let a_cpu = self.cpu_map.get(a).unwrap_or(&0.0);
+                        let b_cpu = self.cpu_map.get(b).unwrap_or(&0.0);
+                        b_cpu.partial_cmp(a_cpu).unwrap()
+                    }
+                    SortMode::Memory => {
+                        let a_mem = self.processes.get(a).map(|p| p.memory_kb).unwrap_or(0);
+                        let b_mem = self.processes.get(b).map(|p| p.memory_kb).unwrap_or(0);
+                        b_mem.cmp(&a_mem)
+                    }
+                }
+            };
+
+            roots.sort_by(sort_fn);
+
+            let mut stack: Vec<(u32, usize)> = roots.into_iter().map(|r| (r, 0)).collect();
+            stack.reverse(); // Process roots in sorted order using stack
+
+            let mut visited = Vec::new();
+            while let Some((pid, depth)) = stack.pop() {
+                visited.push(pid);
+                self.process_depths.insert(pid, depth);
+                if let Some(mut children) = child_map.remove(&pid) {
+                    children.sort_by(sort_fn);
+                    children.reverse(); // Reverse so they are pushed onto stack in correct order
+                    for child_pid in children {
+                        stack.push((child_pid, depth + 1));
+                    }
+                }
+            }
+            self.sorted_pids = visited;
         }
-        
-        self.sorted_pids = procs.into_iter().map(|(pid, _)| *pid).collect();
         
         if let Some(selected) = self.table_state.selected() {
             if !self.sorted_pids.is_empty() && selected >= self.sorted_pids.len() {
@@ -365,6 +423,12 @@ pub fn run_app() -> io::Result<()> {
                 app.update_sorted_pids();
             }
             InputEvent::TogglePause => app.paused = !app.paused,
+            InputEvent::ToggleTree => {
+                if app.input_mode == InputMode::Normal {
+                    app.tree_mode = !app.tree_mode;
+                    app.update_sorted_pids();
+                }
+            }
             _ => {}
         }
 
