@@ -37,6 +37,7 @@ pub struct AppState {
     pub input_mode: InputMode,
     pub paused: bool,
     pub tree_mode: bool,
+    pub show_help: bool,
     pub filter_query: String,
     pub target_pid: Option<u32>,
     pub error_message: Option<(String, Instant)>,
@@ -72,6 +73,7 @@ impl AppState {
             input_mode: InputMode::Normal,
             paused: false,
             tree_mode: false,
+            show_help: false,
             filter_query: String::new(),
             target_pid: None,
             error_message: None,
@@ -160,10 +162,15 @@ impl AppState {
             self.sorted_pids = visited;
         }
         
+        // Safety Clamping: Eliminate out-of-bounds rendering panic risks
         if let Some(selected) = self.table_state.selected() {
-            if !self.sorted_pids.is_empty() && selected >= self.sorted_pids.len() {
-                self.table_state.select(Some(self.sorted_pids.len() - 1));
+            if self.sorted_pids.is_empty() {
+                self.table_state.select(None);
+            } else if selected >= self.sorted_pids.len() {
+                self.table_state.select(Some(self.sorted_pids.len().saturating_sub(1)));
             }
+        } else if !self.sorted_pids.is_empty() {
+            self.table_state.select(Some(0));
         }
     }
 }
@@ -290,35 +297,45 @@ pub fn run_app() -> io::Result<()> {
                     }
                 }
             }
-            InputEvent::EnterFilter => app.input_mode = InputMode::Filter,
+            InputEvent::EnterFilter => {
+                if !app.show_help {
+                    app.input_mode = InputMode::Filter;
+                }
+            }
             InputEvent::InitiateKill => {
-                if app.input_mode == InputMode::Normal && app.target_pid.is_some() {
-                    app.input_mode = InputMode::Confirm;
-                } else if app.input_mode == InputMode::Confirm {
-                    // Treat 'k' in confirm mode as SIGKILL
-                    if let Some(target_pid) = app.target_pid {
-                        match kill(Pid::from_raw(target_pid as i32), Signal::SIGKILL) {
-                            Ok(_) => {
-                                app.input_mode = InputMode::Normal;
-                                app.fx.add_effect(fx::fade_from(Color::White, Color::White, (200, Interpolation::Linear)));
-                            }
-                            Err(e) => {
-                                let msg = match e {
-                                    nix::errno::Errno::EPERM => "Error: Permission Denied (Run as root)",
-                                    nix::errno::Errno::ESRCH => "Error: Process no longer exists",
-                                    _ => "Error: Signal failed",
-                                };
-                                app.error_message = Some((msg.to_string(), Instant::now()));
-                                app.input_mode = InputMode::Normal;
+                if !app.show_help {
+                    if app.input_mode == InputMode::Normal && app.target_pid.is_some() {
+                        app.input_mode = InputMode::Confirm;
+                    } else if app.input_mode == InputMode::Confirm {
+                        // Treat 'k' in confirm mode as SIGKILL
+                        if let Some(target_pid) = app.target_pid {
+                            match kill(Pid::from_raw(target_pid as i32), Signal::SIGKILL) {
+                                Ok(_) => {
+                                    app.input_mode = InputMode::Normal;
+                                    app.fx.add_effect(fx::fade_from(Color::White, Color::White, (200, Interpolation::Linear)));
+                                }
+                                Err(e) => {
+                                    let msg = match e {
+                                        nix::errno::Errno::EPERM => "Error: Permission Denied (Run as root)",
+                                        nix::errno::Errno::ESRCH => "Error: Process no longer exists",
+                                        _ => "Error: Signal failed",
+                                    };
+                                    app.error_message = Some((msg.to_string(), Instant::now()));
+                                    app.input_mode = InputMode::Normal;
+                                }
                             }
                         }
                     }
                 }
             }
             InputEvent::Esc => {
-                app.input_mode = InputMode::Normal;
-                app.filter_query.clear();
-                app.update_sorted_pids();
+                if app.show_help {
+                    app.show_help = false;
+                } else {
+                    app.input_mode = InputMode::Normal;
+                    app.filter_query.clear();
+                    app.update_sorted_pids();
+                }
             }
             InputEvent::Char(c) => {
                 match app.input_mode {
@@ -384,7 +401,7 @@ pub fn run_app() -> io::Result<()> {
                 }
             }
             InputEvent::Up => {
-                if app.input_mode == InputMode::Normal {
+                if app.input_mode == InputMode::Normal && !app.show_help {
                     let i = match app.table_state.selected() {
                         Some(i) => i.saturating_sub(1),
                         None => 0,
@@ -393,7 +410,7 @@ pub fn run_app() -> io::Result<()> {
                 }
             }
             InputEvent::Down => {
-                if app.input_mode == InputMode::Normal {
+                if app.input_mode == InputMode::Normal && !app.show_help {
                     let i = match app.table_state.selected() {
                         Some(i) => {
                             if i >= app.sorted_pids.len().saturating_sub(1) { i } else { i + 1 }
@@ -404,29 +421,42 @@ pub fn run_app() -> io::Result<()> {
                 }
             }
             InputEvent::Top => {
-                if app.input_mode == InputMode::Normal {
+                if app.input_mode == InputMode::Normal && !app.show_help {
                     app.table_state.select(Some(0));
                 }
             }
             InputEvent::Bottom => {
-                if app.input_mode == InputMode::Normal {
+                if app.input_mode == InputMode::Normal && !app.show_help {
                     let max = app.sorted_pids.len().saturating_sub(1);
                     app.table_state.select(Some(max));
                 }
             }
             InputEvent::SortCpu => {
-                app.sort_mode = SortMode::Cpu;
-                app.update_sorted_pids();
+                if !app.show_help {
+                    app.sort_mode = SortMode::Cpu;
+                    app.update_sorted_pids();
+                }
             }
             InputEvent::SortMemory => {
-                app.sort_mode = SortMode::Memory;
-                app.update_sorted_pids();
+                if !app.show_help {
+                    app.sort_mode = SortMode::Memory;
+                    app.update_sorted_pids();
+                }
             }
-            InputEvent::TogglePause => app.paused = !app.paused,
+            InputEvent::TogglePause => {
+                if !app.show_help {
+                    app.paused = !app.paused;
+                }
+            }
             InputEvent::ToggleTree => {
-                if app.input_mode == InputMode::Normal {
+                if app.input_mode == InputMode::Normal && !app.show_help {
                     app.tree_mode = !app.tree_mode;
                     app.update_sorted_pids();
+                }
+            }
+            InputEvent::ToggleHelp => {
+                if app.input_mode == InputMode::Normal {
+                    app.show_help = !app.show_help;
                 }
             }
             _ => {}

@@ -12,6 +12,7 @@ pub enum InputEvent {
     SortMemory,
     TogglePause,
     ToggleTree,
+    ToggleHelp,
     EnterFilter,
     InitiateKill,
     SwitchTab(Tab),
@@ -45,6 +46,7 @@ pub fn read_input(timeout: Duration) -> InputEvent {
                 KeyCode::Char('m') => InputEvent::SortMemory,
                 KeyCode::Char('p') => InputEvent::TogglePause,
                 KeyCode::Char('t') => InputEvent::ToggleTree,
+                KeyCode::Char('?') => InputEvent::ToggleHelp,
                 KeyCode::Char('/') => InputEvent::EnterFilter,
                 
                 KeyCode::Char('1') => InputEvent::SwitchTab(Tab::Fleet),
