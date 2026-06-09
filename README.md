@@ -28,6 +28,8 @@ Pulse provides high-density system and process-level metrics by reading directly
 - **Semantic Alerting:** Modern color-coded rows (Amber/Crimson) highlighting high-load processes.
 - **Instant Filtering:** Real-time process name search and filtering via `/` key.
 - **Dynamic Sorting:** Toggle between CPU and Memory priority with zero-latency updates.
+- **Hierarchical Tree:** Group processes by parent PID (PPID) with recursive indentation.
+- **Process Signals:** Send SIGTERM (Graceful) or SIGKILL (Force) directly via a confirmation dialog.
 
 ### 🎨 Modern UI Engine
 - **Zinc & Rust Theme:** A bespoke, high-contrast palette designed for modern terminals.
@@ -74,10 +76,9 @@ src/
 
 ## 🚧 Roadmap
 
-- **Tree View:** Group processes by parent PID hierarchy.
 - **Sentinel Waveforms:** Replace static cards with real-time network sparklines.
-- **Process Signals:** Ability to send SIGTERM/SIGKILL directly from the Fleet view.
 - **Container Support:** Filter metrics by cgroup/namespace boundaries.
+- **Interactive Graphs:** Expand EKG into full-screen historical analysis modes.
 
 ---
 
