@@ -12,6 +12,7 @@ pub enum InputEvent {
     SortMemory,
     TogglePause,
     EnterFilter,
+    InitiateKill,
     SwitchTab(Tab),
     Char(char),
     Backspace,
@@ -27,7 +28,8 @@ pub fn read_input(timeout: Duration) -> InputEvent {
             return match key.code {
                 KeyCode::Char('q') => InputEvent::Quit,
                 // Arrow keys + Vim bindings
-                KeyCode::Up | KeyCode::Char('k') => InputEvent::Up,
+                KeyCode::Up => InputEvent::Up,
+                KeyCode::Char('k') => InputEvent::InitiateKill,
                 KeyCode::Down | KeyCode::Char('j') => InputEvent::Down,
                 KeyCode::Char('g') => InputEvent::Top,
                 KeyCode::Char('G') => {

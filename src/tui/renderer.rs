@@ -355,22 +355,37 @@ fn render_details(frame: &mut Frame, app: &AppState, area: Rect) {
 }
 
 fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
-    let text = match app.input_mode {
+    // 1. Check for active transient error message (3s expiry)
+    if let Some((msg, timestamp)) = &app.error_message {
+        if timestamp.elapsed() < std::time::Duration::from_secs(3) {
+            let style = Style::default().fg(COLOR_AMBER).add_modifier(Modifier::BOLD);
+            frame.render_widget(Paragraph::new(format!(" {} ", msg)).style(style), area);
+            return;
+        }
+    }
+
+    // 2. Render normal or mode-specific footer
+    let (text, style) = match app.input_mode {
         InputMode::Normal => {
-            if app.paused {
-                " [PAUSED] | [1-3] Lenses | / Filter | s/m Sort | j/k Nav | q Quit ".to_string()
+            let base_text = if app.paused {
+                " [PAUSED] | [1-3] Lenses | / Filter | s/m Sort | j/k Nav | q Quit "
             } else {
-                " [1-3] Lenses | / Filter | s/m Sort | j/k Nav | q Quit ".to_string()
-            }
+                " [1-3] Lenses | / Filter | s/m Sort | j/k Nav | q Quit "
+            };
+            let style = if app.paused {
+                Style::default().bg(Color::Rgb(250, 204, 21)).fg(Color::Black)
+            } else {
+                Style::default().bg(ACCENT_RUST).fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)
+            };
+            (base_text.to_string(), style)
         },
-        InputMode::Filter => format!(" FILTERING: {} ", app.filter_query),
-        InputMode::Confirm => " KILL PROCESS? (y/n) ".to_string(),
-    };
-    
-    let style = if app.paused {
-        Style::default().bg(Color::Rgb(250, 204, 21)).fg(Color::Black)
-    } else {
-        Style::default().bg(ACCENT_RUST).fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD)
+        InputMode::Filter => {
+            (format!(" FILTERING: {} ", app.filter_query), Style::default().bg(ACCENT_RUST).fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD))
+        },
+        InputMode::Confirm => {
+            (" ⚠️ CONFIRM: Press [t] SIGTERM (Graceful) | [k] SIGKILL (Force) | [Esc] Cancel ".to_string(), 
+             Style::default().bg(COLOR_CRIMSON).fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD))
+        },
     };
     
     frame.render_widget(Paragraph::new(text).style(style), area);
