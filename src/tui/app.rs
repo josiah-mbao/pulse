@@ -3,8 +3,10 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, Terminal, widgets::TableState, layout::Rect};
+use ratatui::{backend::CrosstermBackend, Terminal, widgets::TableState, layout::Rect, style::Color};
 use tachyonfx::{EffectManager, fx, Interpolation};
+use nix::sys::signal::{kill, Signal};
+use nix::unistd::Pid;
 
 use pulse::system::{
     engine::Engine, 
@@ -35,6 +37,7 @@ pub struct AppState {
     pub paused: bool,
     pub filter_query: String,
     pub target_pid: Option<u32>,
+    pub error_message: Option<(String, Instant)>,
     pub fx: EffectManager<String>,
     pub last_tick: Instant,
     
@@ -67,6 +70,7 @@ impl AppState {
             paused: false,
             filter_query: String::new(),
             target_pid: None,
+            error_message: None,
             fx: EffectManager::default(),
             last_tick: Instant::now(),
             global_cpu_history: VecDeque::with_capacity(MAX_HISTORY_POINTS),
@@ -229,16 +233,90 @@ pub fn run_app() -> io::Result<()> {
                 }
             }
             InputEvent::EnterFilter => app.input_mode = InputMode::Filter,
+            InputEvent::InitiateKill => {
+                if app.input_mode == InputMode::Normal && app.target_pid.is_some() {
+                    app.input_mode = InputMode::Confirm;
+                } else if app.input_mode == InputMode::Confirm {
+                    // Treat 'k' in confirm mode as SIGKILL
+                    if let Some(target_pid) = app.target_pid {
+                        match kill(Pid::from_raw(target_pid as i32), Signal::SIGKILL) {
+                            Ok(_) => {
+                                app.input_mode = InputMode::Normal;
+                                app.fx.add_effect(fx::fade_from(Color::White, Color::White, (200, Interpolation::Linear)));
+                            }
+                            Err(e) => {
+                                let msg = match e {
+                                    nix::errno::Errno::EPERM => "Error: Permission Denied (Run as root)",
+                                    nix::errno::Errno::ESRCH => "Error: Process no longer exists",
+                                    _ => "Error: Signal failed",
+                                };
+                                app.error_message = Some((msg.to_string(), Instant::now()));
+                                app.input_mode = InputMode::Normal;
+                            }
+                        }
+                    }
+                }
+            }
             InputEvent::Esc => {
                 app.input_mode = InputMode::Normal;
                 app.filter_query.clear();
                 app.update_sorted_pids();
             }
             InputEvent::Char(c) => {
-                if app.input_mode == InputMode::Filter {
-                    app.filter_query.push(c);
-                    app.update_sorted_pids();
-                    app.table_state.select(Some(0));
+                match app.input_mode {
+                    InputMode::Filter => {
+                        app.filter_query.push(c);
+                        app.update_sorted_pids();
+                        app.table_state.select(Some(0));
+                    }
+                    InputMode::Confirm => {
+                        match c {
+                            't' | 'T' => {
+                                if let Some(target_pid) = app.target_pid {
+                                    match kill(Pid::from_raw(target_pid as i32), Signal::SIGTERM) {
+                                        Ok(_) => {
+                                            app.input_mode = InputMode::Normal;
+                                            app.fx.add_effect(fx::fade_from(Color::White, Color::White, (200, Interpolation::Linear)));
+                                        }
+                                        Err(e) => {
+                                            let msg = match e {
+                                                nix::errno::Errno::EPERM => "Error: Permission Denied (Run as root)",
+                                                nix::errno::Errno::ESRCH => "Error: Process no longer exists",
+                                                _ => "Error: Signal failed",
+                                            };
+                                            app.error_message = Some((msg.to_string(), Instant::now()));
+                                            app.input_mode = InputMode::Normal;
+                                        }
+                                    }
+                                }
+                            }
+                            'k' | 'K' => {
+                                // Handled by InitiateKill event too, but adding here for completeness if Char is fired
+                                if let Some(target_pid) = app.target_pid {
+                                    match kill(Pid::from_raw(target_pid as i32), Signal::SIGKILL) {
+                                        Ok(_) => {
+                                            app.input_mode = InputMode::Normal;
+                                            app.fx.add_effect(fx::fade_from(Color::White, Color::White, (200, Interpolation::Linear)));
+                                        }
+                                        Err(e) => {
+                                            let msg = match e {
+                                                nix::errno::Errno::EPERM => "Error: Permission Denied (Run as root)",
+                                                nix::errno::Errno::ESRCH => "Error: Process no longer exists",
+                                                _ => "Error: Signal failed",
+                                            };
+                                            app.error_message = Some((msg.to_string(), Instant::now()));
+                                            app.input_mode = InputMode::Normal;
+                                        }
+                                    }
+                                }
+                            }
+                            'n' | 'N' => {
+                                app.input_mode = InputMode::Normal;
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
                 }
             }
             InputEvent::Backspace => {
