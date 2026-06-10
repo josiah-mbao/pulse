@@ -1,6 +1,6 @@
-use pulse::system::memory::{read_memory, memory_usage_percent};
+use pulse::system::memory::{memory_usage_percent, read_memory};
+use pulse::system::snapshot::{compute_cpu_usage, sample_system};
 use pulse::system::uptime::read_uptime;
-use pulse::system::snapshot::{sample_system, compute_cpu_usage};
 
 use std::{thread::sleep, time::Duration};
 
@@ -48,11 +48,7 @@ fn memory_percent_is_valid_range() {
 fn uptime_is_non_negative() {
     let uptime = read_uptime();
 
-    assert!(
-        uptime >= 0.0,
-        "Uptime should not be negative: {}",
-        uptime
-    );
+    assert!(uptime >= 0.0, "Uptime should not be negative: {}", uptime);
 }
 
 #[test]

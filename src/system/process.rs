@@ -41,15 +41,15 @@ pub fn get_processes() -> Vec<ProcessInfo> {
         let file_name = entry.file_name();
         let name = file_name.to_string_lossy();
 
-        if let Ok(pid) = name.parse::<u32>() {
-            if let (Some(name), Some(mem)) = (read_cmdline(pid), read_memory(pid)) {
-                processes.push(ProcessInfo {
-                    pid,
-                    name,
-                    memory_kb: mem,
-                    cpu_percent: 0.0,
-                });
-            }
+        if let Ok(pid) = name.parse::<u32>()
+            && let (Some(name), Some(mem)) = (read_cmdline(pid), read_memory(pid))
+        {
+            processes.push(ProcessInfo {
+                pid,
+                name,
+                memory_kb: mem,
+                cpu_percent: 0.0,
+            });
         }
     }
 
@@ -71,19 +71,31 @@ pub fn read_cpu_time(pid: u32) -> Option<u64> {
 pub fn get_extra_info(pid: u32) -> Option<(u32, u32, String)> {
     let status_path = format!("/proc/{}/status", pid);
     let content = fs::read_to_string(status_path).ok()?;
-    
+
     let mut ppid = 0;
     let mut threads = 0;
     let mut state = String::from("Unknown");
 
     for line in content.lines() {
         if line.starts_with("PPid:") {
-            ppid = line.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+            ppid = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
         } else if line.starts_with("Threads:") {
-            threads = line.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+            threads = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
         } else if line.starts_with("State:") {
             // Skip "State:" and collect the rest (e.g., "S", "(sleeping)")
-            state = line.split_whitespace().skip(1).collect::<Vec<_>>().join(" ");
+            state = line
+                .split_whitespace()
+                .skip(1)
+                .collect::<Vec<_>>()
+                .join(" ");
         }
     }
     Some((ppid, threads, state))

@@ -1,11 +1,17 @@
-use std::collections::HashMap;
 use crate::system::collector::collect_processes;
-use crate::system::state::{build_state, compute_cpu, ProcessSnapshot};
 use crate::system::cpu::read_total_cpu_time;
+use crate::system::state::{ProcessSnapshot, build_state, compute_cpu};
+use std::collections::HashMap;
 
 pub struct Engine {
     prev_processes: HashMap<u32, ProcessSnapshot>,
     prev_total_cpu: u64,
+}
+
+impl Default for Engine {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Engine {
@@ -19,9 +25,9 @@ impl Engine {
     pub fn tick(&mut self) -> (HashMap<u32, ProcessSnapshot>, HashMap<u32, f32>) {
         let curr_total_cpu = read_total_cpu_time();
         let total_delta = curr_total_cpu.saturating_sub(self.prev_total_cpu);
-        
+
         let raw = collect_processes();
-        
+
         // Build state with total_delta for normalized CPU usage[cite: 5]
         let state = build_state(self.prev_processes.clone(), raw, total_delta);
         let cpu_map = compute_cpu(&state);

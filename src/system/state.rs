@@ -1,8 +1,8 @@
+use crate::system::collector::RawProcess;
+use crate::system::memory::{memory_usage_percent, read_memory};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use crate::system::collector::RawProcess;
-use crate::system::memory::{read_memory, memory_usage_percent};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProcessSnapshot {
@@ -29,7 +29,7 @@ pub struct NetworkStats {
 pub struct SystemState {
     pub prev: HashMap<u32, ProcessSnapshot>,
     pub curr: HashMap<u32, ProcessSnapshot>,
-    pub total_cpu_delta: u64, 
+    pub total_cpu_delta: u64,
 }
 
 /// The unified carrier payload bridging background I/O to the frontend loop
@@ -166,30 +166,41 @@ fn parse_network_stats<R: BufRead>(mut reader: R) -> Option<NetworkStats> {
                 };
 
                 let mut metrics = metrics_part.split_whitespace();
-                let rx_bytes = metrics.next()
+                let rx_bytes = metrics
+                    .next()
                     .and_then(|s| s.parse::<u64>().ok())
                     .unwrap_or(0);
 
                 // Skip 7 fields to reach tx_bytes (index 9 overall in /proc/net/dev line)
-                let tx_bytes = metrics.nth(7)
+                let tx_bytes = metrics
+                    .nth(7)
                     .and_then(|s| s.parse::<u64>().ok())
                     .unwrap_or(0);
 
                 // Include loopback even if currently zero to ensure visibility
                 if rx_bytes > 0 || tx_bytes > 0 || name == "lo" {
-                    let operstate = std::fs::read_to_string(format!("/sys/class/net/{}/operstate", name))
-                        .unwrap_or_else(|_| "unknown".to_string())
-                        .trim()
-                        .to_string();
-                    
-                    let rx_errors = std::fs::read_to_string(format!("/sys/class/net/{}/statistics/rx_errors", name))
-                        .ok()
-                        .and_then(|s| s.trim().parse::<u64>().ok())
-                        .unwrap_or(0);
+                    let operstate =
+                        std::fs::read_to_string(format!("/sys/class/net/{}/operstate", name))
+                            .unwrap_or_else(|_| "unknown".to_string())
+                            .trim()
+                            .to_string();
+
+                    let rx_errors = std::fs::read_to_string(format!(
+                        "/sys/class/net/{}/statistics/rx_errors",
+                        name
+                    ))
+                    .ok()
+                    .and_then(|s| s.trim().parse::<u64>().ok())
+                    .unwrap_or(0);
 
                     stats.interfaces.insert(
                         name.to_string(),
-                        InterfaceSnapshot { rx_bytes, tx_bytes, operstate, rx_errors },
+                        InterfaceSnapshot {
+                            rx_bytes,
+                            tx_bytes,
+                            operstate,
+                            rx_errors,
+                        },
                     );
                 }
             }
@@ -210,8 +221,10 @@ pub fn read_disk_io() -> Option<(u64, u64)> {
 
     loop {
         line.clear();
-        if reader.read_line(&mut line).ok()? == 0 { break; }
-        
+        if reader.read_line(&mut line).ok()? == 0 {
+            break;
+        }
+
         let mut parts = line.split_whitespace();
         let _major = parts.next();
         let _minor = parts.next();
@@ -224,8 +237,14 @@ pub fn read_disk_io() -> Option<(u64, u64)> {
             continue;
         }
 
-        let s_read = parts.nth(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
-        let s_write = parts.nth(3).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+        let s_read = parts
+            .nth(2)
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+        let s_write = parts
+            .nth(3)
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
 
         total_read += s_read;
         total_written += s_write;
@@ -256,7 +275,10 @@ mod tests {
         assert_eq!(lo.tx_bytes, 200);
 
         // Verify "wlan0" interface
-        let wlan0 = stats.interfaces.get("wlan0").expect("wlan0 interface missing");
+        let wlan0 = stats
+            .interfaces
+            .get("wlan0")
+            .expect("wlan0 interface missing");
         assert_eq!(wlan0.rx_bytes, 500);
         assert_eq!(wlan0.tx_bytes, 600);
     }

@@ -11,24 +11,24 @@ pub struct SystemSnapshot {
 
 pub fn sample_system() -> SystemSnapshot {
     let mut processes = HashMap::new();
-    
+
     let entries = match fs::read_dir("/proc") {
         Ok(e) => e,
         Err(_) => {
             return SystemSnapshot {
                 total_cpu: 0,
                 processes,
-            }
+            };
         }
     };
 
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
 
-        if let Ok(pid) = name.parse::<u32>() {
-            if let Some(cpu_time) = read_cpu_time(pid) {
-                processes.insert(pid, cpu_time);
-            }
+        if let Ok(pid) = name.parse::<u32>()
+            && let Some(cpu_time) = read_cpu_time(pid)
+        {
+            processes.insert(pid, cpu_time);
         }
     }
 
@@ -40,10 +40,7 @@ pub fn sample_system() -> SystemSnapshot {
     }
 }
 
-pub fn compute_cpu_usage(
-    prev: &SystemSnapshot,
-    curr: &SystemSnapshot,
-) -> HashMap<u32, f32> {
+pub fn compute_cpu_usage(prev: &SystemSnapshot, curr: &SystemSnapshot) -> HashMap<u32, f32> {
     let mut usage: HashMap<u32, f32> = HashMap::new();
 
     let total_delta = curr.total_cpu.saturating_sub(prev.total_cpu);

@@ -1,7 +1,7 @@
 use std::{thread::sleep, time::Duration};
 
-use crate::system::snapshot::{sample_system, compute_cpu_usage};
 use crate::system::process::get_processes;
+use crate::system::snapshot::{compute_cpu_usage, sample_system};
 
 pub fn sample_processes() -> Vec<crate::system::process::ProcessInfo> {
     let prev = sample_system();

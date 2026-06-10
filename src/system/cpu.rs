@@ -20,5 +20,4 @@ pub fn read_total_cpu_time() -> u64 {
     total
 }
 
-// Resolved dead_code by removing the unused private helper 'read_snapshot' 
-
+// Resolved dead_code by removing the unused private helper 'read_snapshot'
