@@ -128,7 +128,7 @@ impl AppState {
                     let b_cpu = self.cpu_map.get(b_id).unwrap_or(&0.0);
                     b_cpu.partial_cmp(a_cpu).unwrap()
                 }),
-                SortMode::Memory => procs.sort_by(|(_, a), (_, b)| b.memory_kb.cmp(&a.memory_kb)),
+                SortMode::Memory => procs.sort_by_key(|(_, b)| std::cmp::Reverse(b.memory_kb)),
             }
 
             self.sorted_pids = procs.into_iter().map(|(pid, _)| *pid).collect();
@@ -505,21 +505,15 @@ pub fn run_app() -> io::Result<()> {
                     app.update_sorted_pids();
                 }
             }
-            InputEvent::TogglePause => {
-                if !app.show_help {
-                    app.paused = !app.paused;
-                }
+            InputEvent::TogglePause if !app.show_help => {
+                app.paused = !app.paused;
             }
-            InputEvent::ToggleTree => {
-                if app.input_mode == InputMode::Normal && !app.show_help {
-                    app.tree_mode = !app.tree_mode;
-                    app.update_sorted_pids();
-                }
+            InputEvent::ToggleTree if app.input_mode == InputMode::Normal && !app.show_help => {
+                app.tree_mode = !app.tree_mode;
+                app.update_sorted_pids();
             }
-            InputEvent::ToggleHelp => {
-                if app.input_mode == InputMode::Normal {
-                    app.show_help = !app.show_help;
-                }
+            InputEvent::ToggleHelp if app.input_mode == InputMode::Normal => {
+                app.show_help = !app.show_help;
             }
             _ => {}
         }
