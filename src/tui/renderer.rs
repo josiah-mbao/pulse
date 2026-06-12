@@ -1,6 +1,6 @@
-use pulse::system::model::{ProcessSnapshot, ViewRow};
 use crate::tui::app::{AppState, InputMode, Tab};
 use pulse::system::memory::{memory_usage_percent, read_memory};
+use pulse::system::model::{ProcessSnapshot, ViewRow};
 use pulse::system::process::get_extra_info;
 use pulse::system::uptime::read_uptime;
 use ratatui::{
@@ -186,16 +186,19 @@ fn render_sentinel_table(frame: &mut Frame, app: &AppState, area: Rect) {
         return;
     }
 
-    let rows: Vec<Row> = app.sorted_interfaces
+    let rows: Vec<Row> = app
+        .sorted_interfaces
         .iter()
         .filter_map(|name| {
             let (rx, tx) = app.current_speeds.get(name)?;
-            Some(Row::new(vec![
-                format!("󰛳 {}", name),
-                format!("{:.2} KiB/s", rx),
-                format!("{:.2} KiB/s", tx),
-            ])
-            .style(Style::default().fg(TEXT_PRIMARY)))
+            Some(
+                Row::new(vec![
+                    format!("󰛳 {}", name),
+                    format!("{:.2} KiB/s", rx),
+                    format!("{:.2} KiB/s", tx),
+                ])
+                .style(Style::default().fg(TEXT_PRIMARY)),
+            )
         })
         .collect();
 
@@ -236,7 +239,8 @@ fn render_sentinel_stages(frame: &mut Frame, app: &AppState, area: Rect) {
     }
 
     // Split area into equal stages for each interface
-    let constraints: Vec<_> = app.sorted_interfaces
+    let constraints: Vec<_> = app
+        .sorted_interfaces
         .iter()
         .map(|_| Constraint::Ratio(1, app.sorted_interfaces.len() as u32))
         .collect();
@@ -387,18 +391,27 @@ fn render_table(
             let is_selected = selected_idx == Some(idx);
 
             match row {
-                ViewRow::ContainerHeader { id, aggregated_cpu, aggregated_mem_kb } => {
-                    let mut style = Style::default().fg(ACCENT_RUST).add_modifier(Modifier::BOLD);
+                ViewRow::ContainerHeader {
+                    id,
+                    aggregated_cpu,
+                    aggregated_mem_kb,
+                } => {
+                    let mut style = Style::default()
+                        .fg(ACCENT_RUST)
+                        .add_modifier(Modifier::BOLD);
                     if is_selected {
                         style = style.bg(BORDER_MUTED);
                     }
-                    
-                    Some(Row::new(vec![
-                        Cell::from("CONTAINER"),
-                        Cell::from(id.clone()),
-                        Cell::from(format!("{:.1}%", aggregated_cpu)),
-                        Cell::from(format!("{:.1} MiB", *aggregated_mem_kb as f32 / 1024.0)),
-                    ]).style(style))
+
+                    Some(
+                        Row::new(vec![
+                            Cell::from("CONTAINER"),
+                            Cell::from(id.clone()),
+                            Cell::from(format!("{:.1}%", aggregated_cpu)),
+                            Cell::from(format!("{:.1} MiB", *aggregated_mem_kb as f32 / 1024.0)),
+                        ])
+                        .style(style),
+                    )
                 }
                 ViewRow::Process { pid, indent_level } => {
                     let p = snapshots.get(pid)?;
@@ -498,13 +511,7 @@ fn render_details(
 
             format!(
                 " Name:    {}\n PID:     {}\n PPID:    {}\n State:   {}\n Threads: {}\n\n CPU:     {:.2}%\n Memory:  {} KB",
-                proc.name,
-                pid,
-                ppid,
-                state,
-                threads,
-                proc.cpu_usage_percent,
-                proc.memory_kb
+                proc.name, pid, ppid, state, threads, proc.cpu_usage_percent, proc.memory_kb
             )
         } else {
             "Process terminated.".to_string()

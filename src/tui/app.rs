@@ -17,15 +17,15 @@ use std::{
 };
 use tachyonfx::{EffectManager, Interpolation, fx};
 
-use pulse::system::model::{ProcessSnapshot, SortMode, ViewMode, ViewRow};
 use crate::tui::input::{InputEvent, read_input};
 use crate::tui::projection::project_view;
 use crate::tui::renderer::{BG_CANVAS, render};
+use pulse::system::model::{ProcessSnapshot, SortMode, ViewMode, ViewRow};
 use pulse::system::{
     engine::Engine,
     state::{
-        CpuJiffies, NetworkStats, TelemetryFrame, read_disk_io,
-        read_global_jiffies, read_global_mem_percent, read_network_dev,
+        CpuJiffies, NetworkStats, TelemetryFrame, read_disk_io, read_global_jiffies,
+        read_global_mem_percent, read_network_dev,
     },
 };
 
