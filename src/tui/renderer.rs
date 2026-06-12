@@ -1,4 +1,4 @@
-use pulse::system::model::ViewRow;
+use pulse::system::model::{ProcessSnapshot, ViewRow};
 use crate::tui::app::{AppState, InputMode, Tab};
 use pulse::system::memory::{memory_usage_percent, read_memory};
 use pulse::system::process::get_extra_info;
@@ -8,8 +8,9 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Sparkline, Table, Tabs},
+    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Sparkline, Table, TableState, Tabs},
 };
+use std::collections::HashMap;
 
 // Zinc & Rust UI Tokens
 pub const BG_CANVAS: Color = Color::Rgb(9, 9, 11);
@@ -42,7 +43,14 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
     render_stats(frame, app, chunks[1]);
 
     match app.active_tab {
-        Tab::Fleet => render_fleet_tab(frame, app, chunks[2]),
+        Tab::Fleet => render_fleet_tab(
+            frame,
+            chunks[2],
+            &app.view_pipeline,
+            &app.snapshots,
+            &mut app.table_state,
+            app.target_pid,
+        ),
         Tab::Ekg => render_ekg_tab(frame, app, chunks[2]),
         Tab::Sentinel => render_sentinel_tab(frame, app, chunks[2]),
     }
@@ -75,15 +83,21 @@ fn render_tabs(frame: &mut Frame, app: &AppState, area: Rect) {
     frame.render_widget(tabs, area);
 }
 
-fn render_fleet_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
-    // Evaluation of tree_mode is delegated to render_table for structural column rendering
+fn render_fleet_tab(
+    frame: &mut Frame,
+    area: Rect,
+    pipeline: &[ViewRow],
+    snapshots: &HashMap<u32, ProcessSnapshot>,
+    table_state: &mut TableState,
+    target_pid: Option<u32>,
+) {
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
         .split(area);
 
-    render_table(frame, app, main_chunks[0]);
-    render_details(frame, app, main_chunks[1]);
+    render_table(frame, main_chunks[0], pipeline, snapshots, table_state);
+    render_details(frame, main_chunks[1], target_pid, snapshots);
 }
 
 fn render_ekg_tab(frame: &mut Frame, app: &mut AppState, area: Rect) {
@@ -164,7 +178,7 @@ fn render_sentinel_table(frame: &mut Frame, app: &AppState, area: Rect) {
             Style::default().fg(TEXT_PRIMARY),
         ));
 
-    if app.current_speeds.is_empty() {
+    if app.sorted_interfaces.is_empty() {
         let placeholder = Paragraph::new("Sentinel Radar Scanning...")
             .style(Style::default().fg(TEXT_MUTED))
             .block(block);
@@ -172,18 +186,16 @@ fn render_sentinel_table(frame: &mut Frame, app: &AppState, area: Rect) {
         return;
     }
 
-    let mut speeds: Vec<_> = app.current_speeds.iter().collect();
-    speeds.sort_by(|a, b| a.0.cmp(b.0));
-
-    let rows: Vec<Row> = speeds
+    let rows: Vec<Row> = app.sorted_interfaces
         .iter()
-        .map(|(name, (rx, tx))| {
-            Row::new(vec![
+        .filter_map(|name| {
+            let (rx, tx) = app.current_speeds.get(name)?;
+            Some(Row::new(vec![
                 format!("󰛳 {}", name),
                 format!("{:.2} KiB/s", rx),
                 format!("{:.2} KiB/s", tx),
             ])
-            .style(Style::default().fg(TEXT_PRIMARY))
+            .style(Style::default().fg(TEXT_PRIMARY)))
         })
         .collect();
 
@@ -208,10 +220,7 @@ fn render_sentinel_table(frame: &mut Frame, app: &AppState, area: Rect) {
 }
 
 fn render_sentinel_stages(frame: &mut Frame, app: &AppState, area: Rect) {
-    let mut ifaces: Vec<_> = app.prev_network.interfaces.iter().collect();
-    ifaces.sort_by(|a, b| a.0.cmp(b.0));
-
-    if ifaces.is_empty() {
+    if app.sorted_interfaces.is_empty() {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(BORDER_MUTED))
@@ -227,16 +236,21 @@ fn render_sentinel_stages(frame: &mut Frame, app: &AppState, area: Rect) {
     }
 
     // Split area into equal stages for each interface
-    let constraints: Vec<_> = ifaces
+    let constraints: Vec<_> = app.sorted_interfaces
         .iter()
-        .map(|_| Constraint::Ratio(1, ifaces.len() as u32))
+        .map(|_| Constraint::Ratio(1, app.sorted_interfaces.len() as u32))
         .collect();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints(constraints)
         .split(area);
 
-    for (i, (name, snap)) in ifaces.into_iter().enumerate() {
+    for (i, name) in app.sorted_interfaces.iter().enumerate() {
+        let snap = match app.prev_network.interfaces.get(name) {
+            Some(s) => s,
+            None => continue,
+        };
+
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(BORDER_MUTED))
@@ -357,9 +371,14 @@ fn render_stats(frame: &mut Frame, _app: &AppState, area: Rect) {
     frame.render_widget(Paragraph::new(stats_text).block(block), area);
 }
 
-fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
-    let selected_idx = app.table_state.selected();
-    let pipeline = &app.view_pipeline;
+fn render_table(
+    frame: &mut Frame,
+    area: Rect,
+    pipeline: &[ViewRow],
+    snapshots: &HashMap<u32, ProcessSnapshot>,
+    table_state: &mut TableState,
+) {
+    let selected_idx = table_state.selected();
 
     let rows: Vec<Row> = pipeline
         .iter()
@@ -378,11 +397,11 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
                         Cell::from("CONTAINER"),
                         Cell::from(id.clone()),
                         Cell::from(format!("{:.1}%", aggregated_cpu)),
-                        Cell::from(format!("{} KB", aggregated_mem_kb)),
+                        Cell::from(format!("{:.1} MiB", *aggregated_mem_kb as f32 / 1024.0)),
                     ]).style(style))
                 }
                 ViewRow::Process { pid, indent_level } => {
-                    let p = app.snapshots.get(pid)?;
+                    let p = snapshots.get(pid)?;
                     let cpu = p.cpu_usage_percent;
                     let mem = p.memory_kb;
 
@@ -398,23 +417,35 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
                         row_style = row_style.fg(ACCENT_RUST);
                     }
 
-                    let mut name_spans = Vec::new();
+                    let mut prefix = String::new();
                     if *indent_level > 0 {
-                        name_spans.push(Span::styled("  ".repeat(*indent_level as usize), Style::default()));
-                        name_spans.push(Span::styled("└─ ", if is_selected { Style::default().fg(ACCENT_RUST) } else { Style::default().fg(TEXT_MUTED) }));
+                        for _ in 0..(*indent_level - 1) {
+                            prefix.push_str("│  ");
+                        }
+                        prefix.push_str("├─ ");
                     }
+
+                    let prefix_style = if is_selected {
+                        Style::default().fg(ACCENT_RUST)
+                    } else {
+                        Style::default().fg(TEXT_MUTED)
+                    };
 
                     let name_style = if is_selected {
                         Style::default().fg(ACCENT_RUST)
                     } else {
                         Style::default().fg(TEXT_PRIMARY)
                     };
-                    name_spans.push(Span::styled(p.name.clone(), name_style));
+
+                    let name_line = Line::from(vec![
+                        Span::styled(prefix, prefix_style),
+                        Span::styled(p.name.clone(), name_style),
+                    ]);
 
                     Some(
                         Row::new(vec![
                             Cell::from(Span::styled(pid.to_string(), row_style)),
-                            Cell::from(Line::from(name_spans)),
+                            Cell::from(name_line),
                             Cell::from(Span::styled(format!("{:.1}%", cpu), row_style)),
                             Cell::from(Span::styled(format!("{} KB", mem), row_style)),
                         ])
@@ -446,17 +477,22 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
     .row_highlight_style(Style::default().bg(BORDER_MUTED).fg(ACCENT_RUST))
     .highlight_symbol(">> ");
 
-    frame.render_stateful_widget(table, area, &mut app.table_state);
+    frame.render_stateful_widget(table, area, table_state);
 }
 
-fn render_details(frame: &mut Frame, app: &AppState, area: Rect) {
+fn render_details(
+    frame: &mut Frame,
+    area: Rect,
+    target_pid: Option<u32>,
+    snapshots: &HashMap<u32, ProcessSnapshot>,
+) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(BORDER_MUTED))
         .title(Span::styled(" Inspect ", Style::default().fg(TEXT_PRIMARY)));
 
-    let content = if let Some(pid) = app.target_pid {
-        if let Some(proc) = app.snapshots.get(&pid) {
+    let content = if let Some(pid) = target_pid {
+        if let Some(proc) = snapshots.get(&pid) {
             let (ppid, threads, state) =
                 get_extra_info(pid).unwrap_or((0, 0, "Unknown".to_string()));
 
