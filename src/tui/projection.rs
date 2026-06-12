@@ -88,7 +88,7 @@ fn sort_snapshots(snapshots: &mut [&ProcessSnapshot], sort_mode: &SortMode) {
             snapshots.sort_by(|a, b| b.cpu_usage_percent.total_cmp(&a.cpu_usage_percent));
         }
         SortMode::Memory => {
-            snapshots.sort_by(|a, b| b.memory_kb.cmp(&a.memory_kb));
+            snapshots.sort_by_key(|b| std::cmp::Reverse(b.memory_kb));
         }
     }
 }
@@ -153,20 +153,44 @@ mod tests {
                 ..
             } if id == "c1" && (aggregated_cpu - 60.0).abs() < f32::EPSILON
         ));
-        assert!(matches!(pipeline[1], ViewRow::Process { pid: 2, indent_level: 1 }));
-        assert!(matches!(pipeline[2], ViewRow::Process { pid: 1, indent_level: 1 }));
+        assert!(matches!(
+            pipeline[1],
+            ViewRow::Process {
+                pid: 2,
+                indent_level: 1
+            }
+        ));
+        assert!(matches!(
+            pipeline[2],
+            ViewRow::Process {
+                pid: 1,
+                indent_level: 1
+            }
+        ));
 
         assert!(matches!(
             pipeline[3],
             ViewRow::ContainerHeader { ref id, .. } if id == "c2"
         ));
-        assert!(matches!(pipeline[4], ViewRow::Process { pid: 3, indent_level: 1 }));
+        assert!(matches!(
+            pipeline[4],
+            ViewRow::Process {
+                pid: 3,
+                indent_level: 1
+            }
+        ));
 
         assert!(matches!(
             pipeline[5],
             ViewRow::ContainerHeader { ref id, .. } if id == "host"
         ));
-        assert!(matches!(pipeline[6], ViewRow::Process { pid: 4, indent_level: 1 }));
+        assert!(matches!(
+            pipeline[6],
+            ViewRow::Process {
+                pid: 4,
+                indent_level: 1
+            }
+        ));
     }
 
     #[test]
@@ -177,7 +201,12 @@ mod tests {
         p2.name = "match-me".to_string();
         snapshots.insert(2, p2);
 
-        let pipeline = project_view(&snapshots, &ViewMode::Flat, &SortMode::Cpu, Some("match-me"));
+        let pipeline = project_view(
+            &snapshots,
+            &ViewMode::Flat,
+            &SortMode::Cpu,
+            Some("match-me"),
+        );
 
         assert_eq!(pipeline.len(), 1);
         assert!(matches!(pipeline[0], ViewRow::Process { pid: 2, .. }));

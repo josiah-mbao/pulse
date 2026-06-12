@@ -14,7 +14,7 @@ fn cpu_usage_is_valid_range() {
 
     for (_pid, cpu) in usage {
         assert!(
-            cpu >= 0.0 && cpu <= 100.0,
+            (0.0..=100.0).contains(&cpu),
             "CPU usage out of range: {}",
             cpu
         );
@@ -38,7 +38,7 @@ fn memory_percent_is_valid_range() {
     let percent = memory_usage_percent(total, available);
 
     assert!(
-        percent >= 0.0 && percent <= 100.0,
+        (0.0..=100.0).contains(&percent),
         "Memory usage percent out of range: {}",
         percent
     );
@@ -62,6 +62,4 @@ fn system_metrics_do_not_panic() {
     // Other metrics
     let (_total, _available) = read_memory();
     let _uptime = read_uptime();
-
-    assert!(true);
 }

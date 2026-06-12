@@ -17,15 +17,15 @@ use std::{
 };
 use tachyonfx::{EffectManager, Interpolation, fx};
 
-use pulse::system::model::{ProcessSnapshot, SortMode, ViewMode, ViewRow};
 use crate::tui::input::{InputEvent, read_input};
 use crate::tui::projection::project_view;
 use crate::tui::renderer::{BG_CANVAS, render};
+use pulse::system::model::{ProcessSnapshot, SortMode, ViewMode, ViewRow};
 use pulse::system::{
     engine::Engine,
     state::{
-        CpuJiffies, NetworkStats, TelemetryFrame, read_disk_io,
-        read_global_jiffies, read_global_mem_percent, read_network_dev,
+        CpuJiffies, NetworkStats, TelemetryFrame, read_disk_io, read_global_jiffies,
+        read_global_mem_percent, read_network_dev,
     },
 };
 
@@ -72,6 +72,7 @@ pub struct AppState {
     pub prev_disk_read: u64,
     pub prev_disk_write: u64,
     pub current_speeds: HashMap<String, (f32, f32)>,
+    pub sorted_interfaces: Vec<String>,
 }
 
 impl AppState {
@@ -102,6 +103,7 @@ impl AppState {
             prev_disk_read: 0,
             prev_disk_write: 0,
             current_speeds: HashMap::new(),
+            sorted_interfaces: Vec::new(),
         }
     }
 
@@ -239,6 +241,7 @@ pub fn run_app() -> io::Result<()> {
 
             // Calculate network speeds (KiB/s) based on 500ms sampling window
             app.current_speeds.clear();
+            app.sorted_interfaces.clear();
             for (name, curr) in &frame.network.interfaces {
                 if let Some(prev) = app.prev_network.interfaces.get(name) {
                     let rx_delta = curr.rx_bytes.saturating_sub(prev.rx_bytes);
@@ -249,8 +252,10 @@ pub fn run_app() -> io::Result<()> {
                     let tx_kib = (tx_delta as f32 * 2.0) / 1024.0;
 
                     app.current_speeds.insert(name.clone(), (rx_kib, tx_kib));
+                    app.sorted_interfaces.push(name.clone());
                 }
             }
+            app.sorted_interfaces.sort();
             app.prev_network = frame.network;
 
             app.refresh_pipeline();
