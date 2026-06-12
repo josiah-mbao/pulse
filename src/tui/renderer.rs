@@ -1,3 +1,4 @@
+use pulse::system::model::ViewRow;
 use crate::tui::app::{AppState, InputMode, Tab};
 use pulse::system::memory::{memory_usage_percent, read_memory};
 use pulse::system::process::get_extra_info;
@@ -9,7 +10,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Sparkline, Table, Tabs},
 };
-use std::collections::HashMap;
 
 // Zinc & Rust UI Tokens
 pub const BG_CANVAS: Color = Color::Rgb(9, 9, 11);
@@ -359,88 +359,78 @@ fn render_stats(frame: &mut Frame, _app: &AppState, area: Rect) {
 
 fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
     let selected_idx = app.table_state.selected();
-    let sorted_pids = &app.sorted_pids;
-    let process_depths = &app.process_depths;
+    let pipeline = &app.view_pipeline;
 
-    let rows: Vec<Row> = sorted_pids
+    let rows: Vec<Row> = pipeline
         .iter()
         .enumerate()
-        .filter_map(|(idx, pid)| {
-            let p = app.processes.get(pid)?;
-            let cpu = *app.cpu_map.get(pid).unwrap_or(&0.0);
-            let mem = p.memory_kb;
-
+        .filter_map(|(idx, row)| {
             let is_selected = selected_idx == Some(idx);
 
-            let mut row_style = if cpu > 70.0 || mem > 1_000_000 {
-                Style::default().fg(COLOR_CRIMSON)
-            } else if cpu > 30.0 || mem > 500_000 {
-                Style::default().fg(COLOR_AMBER)
-            } else {
-                Style::default().fg(TEXT_PRIMARY)
-            };
-
-            if is_selected {
-                row_style = row_style.fg(ACCENT_RUST);
-            }
-
-            let mut name_spans = Vec::new();
-            if app.tree_mode {
-                let depth = process_depths.get(pid).cloned().unwrap_or(0);
-                if depth > 0 {
-                    for d in 1..=depth {
-                        let prefix_style = if is_selected {
-                            Style::default().fg(ACCENT_RUST)
-                        } else {
-                            Style::default().fg(TEXT_MUTED)
-                        };
-
-                        if d == depth {
-                            if has_more_siblings(idx, d, sorted_pids, process_depths) {
-                                name_spans.push(Span::styled("├─ ", prefix_style));
-                            } else {
-                                name_spans.push(Span::styled("└─ ", prefix_style));
-                            }
-                        } else {
-                            if has_more_siblings(idx, d, sorted_pids, process_depths) {
-                                name_spans.push(Span::styled("│  ", prefix_style));
-                            } else {
-                                name_spans.push(Span::styled("   ", prefix_style));
-                            }
-                        }
+            match row {
+                ViewRow::ContainerHeader { id, aggregated_cpu, aggregated_mem_kb } => {
+                    let mut style = Style::default().fg(ACCENT_RUST).add_modifier(Modifier::BOLD);
+                    if is_selected {
+                        style = style.bg(BORDER_MUTED);
                     }
+                    
+                    Some(Row::new(vec![
+                        Cell::from("CONTAINER"),
+                        Cell::from(id.clone()),
+                        Cell::from(format!("{:.1}%", aggregated_cpu)),
+                        Cell::from(format!("{} KB", aggregated_mem_kb)),
+                    ]).style(style))
+                }
+                ViewRow::Process { pid, indent_level } => {
+                    let p = app.snapshots.get(pid)?;
+                    let cpu = p.cpu_usage_percent;
+                    let mem = p.memory_kb;
+
+                    let mut row_style = if cpu > 70.0 || mem > 1_000_000 {
+                        Style::default().fg(COLOR_CRIMSON)
+                    } else if cpu > 30.0 || mem > 500_000 {
+                        Style::default().fg(COLOR_AMBER)
+                    } else {
+                        Style::default().fg(TEXT_PRIMARY)
+                    };
+
+                    if is_selected {
+                        row_style = row_style.fg(ACCENT_RUST);
+                    }
+
+                    let mut name_spans = Vec::new();
+                    if *indent_level > 0 {
+                        name_spans.push(Span::styled("  ".repeat(*indent_level as usize), Style::default()));
+                        name_spans.push(Span::styled("└─ ", if is_selected { Style::default().fg(ACCENT_RUST) } else { Style::default().fg(TEXT_MUTED) }));
+                    }
+
+                    let name_style = if is_selected {
+                        Style::default().fg(ACCENT_RUST)
+                    } else {
+                        Style::default().fg(TEXT_PRIMARY)
+                    };
+                    name_spans.push(Span::styled(p.name.clone(), name_style));
+
+                    Some(
+                        Row::new(vec![
+                            Cell::from(Span::styled(pid.to_string(), row_style)),
+                            Cell::from(Line::from(name_spans)),
+                            Cell::from(Span::styled(format!("{:.1}%", cpu), row_style)),
+                            Cell::from(Span::styled(format!("{} KB", mem), row_style)),
+                        ])
+                        .style(row_style),
+                    )
                 }
             }
-
-            let name_style = if is_selected {
-                Style::default().fg(ACCENT_RUST)
-            } else {
-                Style::default().fg(TEXT_PRIMARY)
-            };
-            name_spans.push(Span::styled(p.name.clone(), name_style));
-
-            Some(
-                Row::new(vec![
-                    Cell::from(Span::styled(pid.to_string(), row_style)),
-                    Cell::from(Line::from(name_spans)),
-                    Cell::from(Span::styled(format!("{:.1}%", cpu), row_style)),
-                    Cell::from(Span::styled(format!("{} KB", mem), row_style)),
-                ])
-                .style(row_style),
-            )
         })
         .collect();
 
-    let title = if app.tree_mode {
-        " Process Tree "
-    } else {
-        " Processes "
-    };
+    let title = " Process List ";
 
     let table = Table::new(
         rows,
         [
-            Constraint::Length(8),
+            Constraint::Length(10),
             Constraint::Min(20),
             Constraint::Length(10),
             Constraint::Length(15),
@@ -459,24 +449,6 @@ fn render_table(frame: &mut Frame, app: &mut AppState, area: Rect) {
     frame.render_stateful_widget(table, area, &mut app.table_state);
 }
 
-fn has_more_siblings(
-    idx: usize,
-    depth: usize,
-    sorted_pids: &[u32],
-    process_depths: &HashMap<u32, usize>,
-) -> bool {
-    for pid in sorted_pids.iter().skip(idx + 1) {
-        let next_depth = process_depths.get(pid).cloned().unwrap_or(0);
-        if next_depth == depth {
-            return true;
-        }
-        if next_depth < depth {
-            return false;
-        }
-    }
-    false
-}
-
 fn render_details(frame: &mut Frame, app: &AppState, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
@@ -484,7 +456,7 @@ fn render_details(frame: &mut Frame, app: &AppState, area: Rect) {
         .title(Span::styled(" Inspect ", Style::default().fg(TEXT_PRIMARY)));
 
     let content = if let Some(pid) = app.target_pid {
-        if let Some(proc) = app.processes.get(&pid) {
+        if let Some(proc) = app.snapshots.get(&pid) {
             let (ppid, threads, state) =
                 get_extra_info(pid).unwrap_or((0, 0, "Unknown".to_string()));
 
@@ -495,7 +467,7 @@ fn render_details(frame: &mut Frame, app: &AppState, area: Rect) {
                 ppid,
                 state,
                 threads,
-                app.cpu_map.get(&pid).unwrap_or(&0.0),
+                proc.cpu_usage_percent,
                 proc.memory_kb
             )
         } else {

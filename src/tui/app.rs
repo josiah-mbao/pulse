@@ -17,12 +17,14 @@ use std::{
 };
 use tachyonfx::{EffectManager, Interpolation, fx};
 
+use pulse::system::model::{ProcessSnapshot, SortMode, ViewMode, ViewRow};
 use crate::tui::input::{InputEvent, read_input};
+use crate::tui::projection::project_view;
 use crate::tui::renderer::{BG_CANVAS, render};
 use pulse::system::{
     engine::Engine,
     state::{
-        CpuJiffies, NetworkStats, ProcessSnapshot, TelemetryFrame, read_disk_io,
+        CpuJiffies, NetworkStats, TelemetryFrame, read_disk_io,
         read_global_jiffies, read_global_mem_percent, read_network_dev,
     },
 };
@@ -37,12 +39,6 @@ pub enum Tab {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-pub enum SortMode {
-    Cpu,
-    Memory,
-}
-
-#[derive(Clone, Copy, PartialEq)]
 pub enum InputMode {
     Normal,
     Filter,
@@ -50,16 +46,14 @@ pub enum InputMode {
 }
 
 pub struct AppState {
-    pub processes: HashMap<u32, ProcessSnapshot>,
-    pub cpu_map: HashMap<u32, f32>,
-    pub sorted_pids: Vec<u32>,
-    pub process_depths: HashMap<u32, usize>,
+    pub snapshots: HashMap<u32, ProcessSnapshot>,
+    pub view_pipeline: Vec<ViewRow>,
+    pub view_mode: ViewMode,
+    pub sort_mode: SortMode,
     pub table_state: TableState,
     pub active_tab: Tab,
-    pub sort_mode: SortMode,
     pub input_mode: InputMode,
     pub paused: bool,
-    pub tree_mode: bool,
     pub show_help: bool,
     pub filter_query: String,
     pub target_pid: Option<u32>,
@@ -86,16 +80,14 @@ impl AppState {
         table_state.select(Some(0));
 
         Self {
-            processes: HashMap::new(),
-            cpu_map: HashMap::new(),
-            sorted_pids: Vec::new(),
-            process_depths: HashMap::new(),
+            snapshots: HashMap::new(),
+            view_pipeline: Vec::new(),
+            view_mode: ViewMode::default(),
+            sort_mode: SortMode::default(),
             table_state,
             active_tab: Tab::Fleet,
-            sort_mode: SortMode::Cpu,
             input_mode: InputMode::Normal,
             paused: false,
-            tree_mode: false,
             show_help: false,
             filter_query: String::new(),
             target_pid: None,
@@ -113,85 +105,27 @@ impl AppState {
         }
     }
 
-    pub fn update_sorted_pids(&mut self) {
-        self.process_depths.clear();
-        if !self.tree_mode {
-            let mut procs: Vec<_> = self.processes.iter().collect();
-
-            if !self.filter_query.is_empty() {
-                procs.retain(|(_, p)| p.name.contains(&self.filter_query));
-            }
-
-            match self.sort_mode {
-                SortMode::Cpu => procs.sort_by(|(a_id, _), (b_id, _)| {
-                    let a_cpu = self.cpu_map.get(a_id).unwrap_or(&0.0);
-                    let b_cpu = self.cpu_map.get(b_id).unwrap_or(&0.0);
-                    b_cpu.partial_cmp(a_cpu).unwrap()
-                }),
-                SortMode::Memory => procs.sort_by_key(|(_, b)| std::cmp::Reverse(b.memory_kb)),
-            }
-
-            self.sorted_pids = procs.into_iter().map(|(pid, _)| *pid).collect();
-        } else {
-            self.sorted_pids.clear();
-            let mut child_map: HashMap<u32, Vec<u32>> = HashMap::new();
-            let mut roots = Vec::new();
-
-            for (&pid, proc) in &self.processes {
-                if !self.filter_query.is_empty() && !proc.name.contains(&self.filter_query) {
-                    continue;
-                }
-
-                if proc.ppid == 0 || proc.ppid == 1 || !self.processes.contains_key(&proc.ppid) {
-                    roots.push(pid);
-                } else {
-                    child_map.entry(proc.ppid).or_default().push(pid);
-                }
-            }
-
-            // Deterministic sorting of roots and siblings
-            let sort_fn = |a: &u32, b: &u32| match self.sort_mode {
-                SortMode::Cpu => {
-                    let a_cpu = self.cpu_map.get(a).unwrap_or(&0.0);
-                    let b_cpu = self.cpu_map.get(b).unwrap_or(&0.0);
-                    b_cpu.partial_cmp(a_cpu).unwrap()
-                }
-                SortMode::Memory => {
-                    let a_mem = self.processes.get(a).map(|p| p.memory_kb).unwrap_or(0);
-                    let b_mem = self.processes.get(b).map(|p| p.memory_kb).unwrap_or(0);
-                    b_mem.cmp(&a_mem)
-                }
-            };
-
-            roots.sort_by(sort_fn);
-
-            let mut stack: Vec<(u32, usize)> = roots.into_iter().map(|r| (r, 0)).collect();
-            stack.reverse(); // Process roots in sorted order using stack
-
-            let mut visited = Vec::new();
-            while let Some((pid, depth)) = stack.pop() {
-                visited.push(pid);
-                self.process_depths.insert(pid, depth);
-                if let Some(mut children) = child_map.remove(&pid) {
-                    children.sort_by(sort_fn);
-                    children.reverse(); // Reverse so they are pushed onto stack in correct order
-                    for child_pid in children {
-                        stack.push((child_pid, depth + 1));
-                    }
-                }
-            }
-            self.sorted_pids = visited;
-        }
+    pub fn refresh_pipeline(&mut self) {
+        self.view_pipeline = project_view(
+            &self.snapshots,
+            &self.view_mode,
+            &self.sort_mode,
+            if self.filter_query.is_empty() {
+                None
+            } else {
+                Some(&self.filter_query)
+            },
+        );
 
         // Safety Clamping: Eliminate out-of-bounds rendering panic risks
         if let Some(selected) = self.table_state.selected() {
-            if self.sorted_pids.is_empty() {
+            if self.view_pipeline.is_empty() {
                 self.table_state.select(None);
-            } else if selected >= self.sorted_pids.len() {
+            } else if selected >= self.view_pipeline.len() {
                 self.table_state
-                    .select(Some(self.sorted_pids.len().saturating_sub(1)));
+                    .select(Some(self.view_pipeline.len().saturating_sub(1)));
             }
-        } else if !self.sorted_pids.is_empty() {
+        } else if !self.view_pipeline.is_empty() {
             self.table_state.select(Some(0));
         }
     }
@@ -252,8 +186,22 @@ pub fn run_app() -> io::Result<()> {
         if let Ok(frame) = rx.try_recv()
             && !app.paused
         {
-            app.processes = frame.processes;
-            app.cpu_map = frame.cpu_map;
+            // Map TelemetryFrame to model::ProcessSnapshot
+            app.snapshots.clear();
+            for (pid, proc) in frame.processes {
+                let cpu = frame.cpu_map.get(&pid).copied().unwrap_or(0.0);
+                app.snapshots.insert(
+                    pid,
+                    ProcessSnapshot {
+                        pid,
+                        ppid: proc.ppid,
+                        name: proc.name,
+                        cpu_usage_percent: cpu,
+                        memory_kb: proc.memory_kb,
+                        container_id: None, // Will be implemented in Phase 4/Future
+                    },
+                );
+            }
 
             // Shift time-series rolling history constraints
             if app.global_cpu_history.len() >= MAX_HISTORY_POINTS {
@@ -305,7 +253,7 @@ pub fn run_app() -> io::Result<()> {
             }
             app.prev_network = frame.network;
 
-            app.update_sorted_pids();
+            app.refresh_pipeline();
         }
 
         let timeout = if app.fx.is_running() {
@@ -374,14 +322,14 @@ pub fn run_app() -> io::Result<()> {
                 } else {
                     app.input_mode = InputMode::Normal;
                     app.filter_query.clear();
-                    app.update_sorted_pids();
+                    app.refresh_pipeline();
                 }
             }
             InputEvent::Char(c) => {
                 match app.input_mode {
                     InputMode::Filter => {
                         app.filter_query.push(c);
-                        app.update_sorted_pids();
+                        app.refresh_pipeline();
                         app.table_state.select(Some(0));
                     }
                     InputMode::Confirm => {
@@ -455,7 +403,7 @@ pub fn run_app() -> io::Result<()> {
             InputEvent::Backspace => {
                 if app.input_mode == InputMode::Filter {
                     app.filter_query.pop();
-                    app.update_sorted_pids();
+                    app.refresh_pipeline();
                 }
             }
             InputEvent::Up => {
@@ -471,7 +419,7 @@ pub fn run_app() -> io::Result<()> {
                 if app.input_mode == InputMode::Normal && !app.show_help {
                     let i = match app.table_state.selected() {
                         Some(i) => {
-                            if i >= app.sorted_pids.len().saturating_sub(1) {
+                            if i >= app.view_pipeline.len().saturating_sub(1) {
                                 i
                             } else {
                                 i + 1
@@ -489,28 +437,31 @@ pub fn run_app() -> io::Result<()> {
             }
             InputEvent::Bottom => {
                 if app.input_mode == InputMode::Normal && !app.show_help {
-                    let max = app.sorted_pids.len().saturating_sub(1);
+                    let max = app.view_pipeline.len().saturating_sub(1);
                     app.table_state.select(Some(max));
                 }
             }
             InputEvent::SortCpu => {
                 if !app.show_help {
                     app.sort_mode = SortMode::Cpu;
-                    app.update_sorted_pids();
+                    app.refresh_pipeline();
                 }
             }
             InputEvent::SortMemory => {
                 if !app.show_help {
                     app.sort_mode = SortMode::Memory;
-                    app.update_sorted_pids();
+                    app.refresh_pipeline();
                 }
             }
             InputEvent::TogglePause if !app.show_help => {
                 app.paused = !app.paused;
             }
             InputEvent::ToggleTree if app.input_mode == InputMode::Normal && !app.show_help => {
-                app.tree_mode = !app.tree_mode;
-                app.update_sorted_pids();
+                app.view_mode = match app.view_mode {
+                    ViewMode::Flat => ViewMode::Container,
+                    ViewMode::Container => ViewMode::Flat,
+                };
+                app.refresh_pipeline();
             }
             InputEvent::ToggleHelp if app.input_mode == InputMode::Normal => {
                 app.show_help = !app.show_help;
@@ -519,7 +470,11 @@ pub fn run_app() -> io::Result<()> {
         }
 
         if let Some(idx) = app.table_state.selected() {
-            app.target_pid = app.sorted_pids.get(idx).copied();
+            if let Some(ViewRow::Process { pid, .. }) = app.view_pipeline.get(idx) {
+                app.target_pid = Some(*pid);
+            } else {
+                app.target_pid = None;
+            }
         }
 
         terminal.draw(|f| {
