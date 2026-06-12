@@ -2,6 +2,7 @@ pub mod collector;
 pub mod cpu;
 pub mod engine;
 pub mod memory;
+pub mod model;
 pub mod process;
 pub mod sampler;
 pub mod snapshot;
