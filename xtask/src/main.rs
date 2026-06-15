@@ -1,6 +1,6 @@
-use std::process::Command;
 use anyhow::Context;
 use clap::Parser;
+use std::process::Command;
 
 #[derive(Parser)]
 enum Cli {
@@ -20,9 +20,12 @@ fn build_ebpf() -> anyhow::Result<()> {
     let status = Command::new("cargo")
         .args([
             "build",
-            "--package", "pulse-ebpf",
-            "--target", "bpfel-unknown-none",
-            "-Z", "build-std=core",
+            "--package",
+            "pulse-ebpf",
+            "--target",
+            "bpfel-unknown-none",
+            "-Z",
+            "build-std=core",
         ])
         .status()
         .context("Failed to run cargo build for eBPF")?;
