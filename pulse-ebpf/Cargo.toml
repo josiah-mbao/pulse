@@ -1,0 +1,12 @@
+[package]
+name = "pulse-ebpf"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aya-ebpf = "0.1.1"
+pulse-common = { path = "../pulse-common" }
+
+[[bin]]
+name = "pulse-ebpf"
+path = "src/main.rs"
