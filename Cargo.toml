@@ -3,6 +3,19 @@ name = "pulse"
 version = "0.7.0"
 edition = "2024"
 
+[workspace]
+members = [
+    ".",
+    "pulse-common",
+    "pulse-ebpf",
+    "xtask",
+]
+default-members = [
+    ".",
+    "pulse-common",
+    "xtask",
+]
+
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }
 crossterm = "0.29.0"
