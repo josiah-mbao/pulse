@@ -10,3 +10,9 @@ pulse-common = { path = "../pulse-common" }
 [[bin]]
 name = "pulse-ebpf"
 path = "src/main.rs"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
