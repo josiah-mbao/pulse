@@ -11,8 +11,8 @@ use std::{
     collections::HashMap,
     collections::VecDeque,
     io,
-    sync::mpsc,
-    thread,
+    sync::Arc,
+    sync::atomic::AtomicBool,
     time::{Duration, Instant},
 };
 use tachyonfx::{EffectManager, Interpolation, fx};
@@ -20,14 +20,12 @@ use tachyonfx::{EffectManager, Interpolation, fx};
 use crate::tui::input::{InputEvent, read_input};
 use crate::tui::projection::project_view;
 use crate::tui::renderer::{BG_CANVAS, render};
-use pulse::system::model::{ProcessSnapshot, SortMode, ViewMode, ViewRow};
-use pulse::system::{
-    engine::Engine,
-    state::{
-        CpuJiffies, NetworkStats, TelemetryFrame, read_disk_io, read_global_jiffies,
-        read_global_mem_percent, read_network_dev,
-    },
+use pulse::system::engine::Engine;
+use pulse::system::model::{
+    NetworkStats, ProcessSnapshot as TuiProcessSnapshot, SortMode, SystemEvent, TelemetryFrame,
+    ViewMode, ViewRow,
 };
+use pulse_common::TraceEvent;
 
 const MAX_HISTORY_POINTS: usize = 200;
 
@@ -46,7 +44,7 @@ pub enum InputMode {
 }
 
 pub struct AppState {
-    pub snapshots: HashMap<u32, ProcessSnapshot>,
+    pub snapshots: HashMap<u32, TuiProcessSnapshot>,
     pub view_pipeline: Vec<ViewRow>,
     pub view_mode: ViewMode,
     pub sort_mode: SortMode,
@@ -107,6 +105,85 @@ impl AppState {
         }
     }
 
+    pub fn apply_tick(&mut self, frame: TelemetryFrame) {
+        if self.paused {
+            return;
+        }
+
+        // Map TelemetryFrame to model::ProcessSnapshot
+        self.snapshots.clear();
+        for (pid, proc) in frame.processes {
+            let cpu = frame.cpu_map.get(&pid).copied().unwrap_or(0.0);
+            self.snapshots.insert(
+                pid,
+                TuiProcessSnapshot {
+                    pid,
+                    ppid: proc.ppid,
+                    name: proc.name,
+                    cpu_usage_percent: cpu,
+                    memory_kb: proc.memory_kb,
+                    container_id: None,
+                },
+            );
+        }
+
+        // Shift time-series rolling history constraints
+        if self.global_cpu_history.len() >= MAX_HISTORY_POINTS {
+            self.global_cpu_history.pop_front();
+        }
+        self.global_cpu_history
+            .push_back(frame.global_cpu_utilization);
+
+        if self.global_mem_history.len() >= MAX_HISTORY_POINTS {
+            self.global_mem_history.pop_front();
+        }
+        self.global_mem_history
+            .push_back(frame.global_mem_utilization);
+
+        if self.prev_disk_read > 0 || self.prev_disk_write > 0 {
+            let r_delta = frame.disk_sectors_read.saturating_sub(self.prev_disk_read) as f32;
+            let w_delta = frame
+                .disk_sectors_written
+                .saturating_sub(self.prev_disk_write) as f32;
+
+            if self.disk_read_history.len() >= MAX_HISTORY_POINTS {
+                self.disk_read_history.pop_front();
+            }
+            self.disk_read_history.push_back(r_delta);
+
+            if self.disk_write_history.len() >= MAX_HISTORY_POINTS {
+                self.disk_write_history.pop_front();
+            }
+            self.disk_write_history.push_back(w_delta);
+        }
+        self.prev_disk_read = frame.disk_sectors_read;
+        self.prev_disk_write = frame.disk_sectors_written;
+
+        self.current_speeds.clear();
+        self.sorted_interfaces.clear();
+        for (name, curr) in &frame.network.interfaces {
+            if let Some(prev) = self.prev_network.interfaces.get(name) {
+                let rx_delta = curr.rx_bytes.saturating_sub(prev.rx_bytes);
+                let tx_delta = curr.tx_bytes.saturating_sub(prev.tx_bytes);
+
+                let rx_kib = (rx_delta as f32 * 2.0) / 1024.0;
+                let tx_kib = (tx_delta as f32 * 2.0) / 1024.0;
+
+                self.current_speeds.insert(name.clone(), (rx_kib, tx_kib));
+                self.sorted_interfaces.push(name.clone());
+            }
+        }
+        self.sorted_interfaces.sort();
+        self.prev_network = frame.network;
+
+        self.refresh_pipeline();
+    }
+
+    pub fn apply_trace(&mut self, _event: TraceEvent) {
+        // Phase 2: Capture for internal state.
+        // Integration with UI (e.g., Trace Lens) will happen in Phase 3.
+    }
+
     pub fn refresh_pipeline(&mut self) {
         self.view_pipeline = project_view(
             &self.snapshots,
@@ -119,7 +196,6 @@ impl AppState {
             },
         );
 
-        // Safety Clamping: Eliminate out-of-bounds rendering panic risks
         if let Some(selected) = self.table_state.selected() {
             if self.view_pipeline.is_empty() {
                 self.table_state.select(None);
@@ -141,124 +217,20 @@ pub fn run_app() -> io::Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = AppState::new();
-    let mut engine = Engine::new();
-    let (tx, rx) = mpsc::channel::<TelemetryFrame>();
-
-    // Background Thread Loop: Synthesizes system-wide metrics alongside processes
-    thread::spawn(move || {
-        let mut prev_jiffies = read_global_jiffies().unwrap_or(CpuJiffies { total: 0, idle: 0 });
-        loop {
-            let (procs, cpu) = engine.tick();
-
-            let mut global_cpu = 0.0;
-            if let Some(curr_jiffies) = read_global_jiffies() {
-                let total_d = curr_jiffies.total.saturating_sub(prev_jiffies.total);
-                let idle_d = curr_jiffies.idle.saturating_sub(prev_jiffies.idle);
-                if total_d > 0 {
-                    global_cpu = ((total_d - idle_d) as f32 / total_d as f32) * 100.0;
-                }
-                prev_jiffies = curr_jiffies;
-            }
-
-            let global_mem = read_global_mem_percent();
-            let (disk_r, disk_w) = read_disk_io().unwrap_or((0, 0));
-
-            let frame = TelemetryFrame {
-                processes: procs,
-                cpu_map: cpu,
-                global_cpu_utilization: global_cpu,
-                global_mem_utilization: global_mem,
-                network: read_network_dev().unwrap_or_default(),
-                disk_sectors_read: disk_r,
-                disk_sectors_written: disk_w,
-            };
-
-            if tx.send(frame).is_err() {
-                break;
-            }
-            thread::sleep(Duration::from_millis(500));
-        }
-    });
+    let engine = Engine::new();
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let rx = engine.spawn_collectors(Arc::clone(&shutdown));
 
     loop {
         let now = Instant::now();
         let dt = now.duration_since(app.last_tick);
         app.last_tick = now;
 
-        if let Ok(frame) = rx.try_recv()
-            && !app.paused
-        {
-            // Map TelemetryFrame to model::ProcessSnapshot
-            app.snapshots.clear();
-            for (pid, proc) in frame.processes {
-                let cpu = frame.cpu_map.get(&pid).copied().unwrap_or(0.0);
-                app.snapshots.insert(
-                    pid,
-                    ProcessSnapshot {
-                        pid,
-                        ppid: proc.ppid,
-                        name: proc.name,
-                        cpu_usage_percent: cpu,
-                        memory_kb: proc.memory_kb,
-                        container_id: None, // Will be implemented in Phase 4/Future
-                    },
-                );
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                SystemEvent::Tick(frame) => app.apply_tick(frame),
+                SystemEvent::Trace(event) => app.apply_trace(event),
             }
-
-            // Shift time-series rolling history constraints
-            if app.global_cpu_history.len() >= MAX_HISTORY_POINTS {
-                app.global_cpu_history.pop_front();
-            }
-            app.global_cpu_history
-                .push_back(frame.global_cpu_utilization);
-
-            if app.global_mem_history.len() >= MAX_HISTORY_POINTS {
-                app.global_mem_history.pop_front();
-            }
-            app.global_mem_history
-                .push_back(frame.global_mem_utilization);
-
-            // Disk Velocity Calculation (KiB/s)
-            // 1 sector = 512 bytes = 0.5 KiB. Sample every 500ms -> KiB/s = delta_sectors * 0.5 * 2 = delta_sectors
-            if app.prev_disk_read > 0 || app.prev_disk_write > 0 {
-                let r_delta = frame.disk_sectors_read.saturating_sub(app.prev_disk_read) as f32;
-                let w_delta = frame
-                    .disk_sectors_written
-                    .saturating_sub(app.prev_disk_write) as f32;
-
-                if app.disk_read_history.len() >= MAX_HISTORY_POINTS {
-                    app.disk_read_history.pop_front();
-                }
-                app.disk_read_history.push_back(r_delta);
-
-                if app.disk_write_history.len() >= MAX_HISTORY_POINTS {
-                    app.disk_write_history.pop_front();
-                }
-                app.disk_write_history.push_back(w_delta);
-            }
-            app.prev_disk_read = frame.disk_sectors_read;
-            app.prev_disk_write = frame.disk_sectors_written;
-
-            // Calculate network speeds (KiB/s) based on 500ms sampling window
-            app.current_speeds.clear();
-            app.sorted_interfaces.clear();
-            for (name, curr) in &frame.network.interfaces {
-                if let Some(prev) = app.prev_network.interfaces.get(name) {
-                    let rx_delta = curr.rx_bytes.saturating_sub(prev.rx_bytes);
-                    let tx_delta = curr.tx_bytes.saturating_sub(prev.tx_bytes);
-
-                    // Multiply by 2.0 to scale 500ms -> 1s, divide by 1024.0 for KiB
-                    let rx_kib = (rx_delta as f32 * 2.0) / 1024.0;
-                    let tx_kib = (tx_delta as f32 * 2.0) / 1024.0;
-
-                    app.current_speeds.insert(name.clone(), (rx_kib, tx_kib));
-                    app.sorted_interfaces.push(name.clone());
-                }
-            }
-            app.sorted_interfaces.sort();
-            app.prev_network = frame.network;
-
-            app.refresh_pipeline();
         }
 
         let timeout = if app.fx.is_running() {
@@ -273,7 +245,6 @@ pub fn run_app() -> io::Result<()> {
                 if app.active_tab != tab {
                     app.active_tab = tab;
                     if let Ok(size) = terminal.size() {
-                        // The main rendering area starts below tab bar (3) and stats (3).
                         let main_area = Rect::new(0, 6, size.width, size.height.saturating_sub(7));
                         app.fx.add_effect(
                             fx::fade_from(BG_CANVAS, BG_CANVAS, (150, Interpolation::QuadOut))
@@ -291,8 +262,77 @@ pub fn run_app() -> io::Result<()> {
                 if !app.show_help {
                     if app.input_mode == InputMode::Normal && app.target_pid.is_some() {
                         app.input_mode = InputMode::Confirm;
-                    } else if app.input_mode == InputMode::Confirm {
-                        // Treat 'k' in confirm mode as SIGKILL
+                    } else if app.input_mode == InputMode::Confirm
+                        && let Some(target_pid) = app.target_pid
+                    {
+                        match kill(Pid::from_raw(target_pid as i32), Signal::SIGKILL) {
+                            Ok(_) => {
+                                app.input_mode = InputMode::Normal;
+                                app.fx.add_effect(fx::fade_from(
+                                    Color::White,
+                                    Color::White,
+                                    (200, Interpolation::Linear),
+                                ));
+                            }
+                            Err(e) => {
+                                let msg = match e {
+                                    nix::errno::Errno::EPERM => {
+                                        "Error: Permission Denied (Run as root)"
+                                    }
+                                    nix::errno::Errno::ESRCH => "Error: Process no longer exists",
+                                    _ => "Error: Signal failed",
+                                };
+                                app.error_message = Some((msg.to_string(), Instant::now()));
+                                app.input_mode = InputMode::Normal;
+                            }
+                        }
+                    }
+                }
+            }
+            InputEvent::Esc => {
+                if app.show_help {
+                    app.show_help = false;
+                } else {
+                    app.input_mode = InputMode::Normal;
+                    app.filter_query.clear();
+                    app.refresh_pipeline();
+                }
+            }
+            InputEvent::Char(c) => match app.input_mode {
+                InputMode::Filter => {
+                    app.filter_query.push(c);
+                    app.refresh_pipeline();
+                    app.table_state.select(Some(0));
+                }
+                InputMode::Confirm => match c {
+                    't' | 'T' => {
+                        if let Some(target_pid) = app.target_pid {
+                            match kill(Pid::from_raw(target_pid as i32), Signal::SIGTERM) {
+                                Ok(_) => {
+                                    app.input_mode = InputMode::Normal;
+                                    app.fx.add_effect(fx::fade_from(
+                                        Color::White,
+                                        Color::White,
+                                        (200, Interpolation::Linear),
+                                    ));
+                                }
+                                Err(e) => {
+                                    let msg = match e {
+                                        nix::errno::Errno::EPERM => {
+                                            "Error: Permission Denied (Run as root)"
+                                        }
+                                        nix::errno::Errno::ESRCH => {
+                                            "Error: Process no longer exists"
+                                        }
+                                        _ => "Error: Signal failed",
+                                    };
+                                    app.error_message = Some((msg.to_string(), Instant::now()));
+                                    app.input_mode = InputMode::Normal;
+                                }
+                            }
+                        }
+                    }
+                    'k' | 'K' => {
                         if let Some(target_pid) = app.target_pid {
                             match kill(Pid::from_raw(target_pid as i32), Signal::SIGKILL) {
                                 Ok(_) => {
@@ -319,92 +359,13 @@ pub fn run_app() -> io::Result<()> {
                             }
                         }
                     }
-                }
-            }
-            InputEvent::Esc => {
-                if app.show_help {
-                    app.show_help = false;
-                } else {
-                    app.input_mode = InputMode::Normal;
-                    app.filter_query.clear();
-                    app.refresh_pipeline();
-                }
-            }
-            InputEvent::Char(c) => {
-                match app.input_mode {
-                    InputMode::Filter => {
-                        app.filter_query.push(c);
-                        app.refresh_pipeline();
-                        app.table_state.select(Some(0));
-                    }
-                    InputMode::Confirm => {
-                        match c {
-                            't' | 'T' => {
-                                if let Some(target_pid) = app.target_pid {
-                                    match kill(Pid::from_raw(target_pid as i32), Signal::SIGTERM) {
-                                        Ok(_) => {
-                                            app.input_mode = InputMode::Normal;
-                                            app.fx.add_effect(fx::fade_from(
-                                                Color::White,
-                                                Color::White,
-                                                (200, Interpolation::Linear),
-                                            ));
-                                        }
-                                        Err(e) => {
-                                            let msg = match e {
-                                                nix::errno::Errno::EPERM => {
-                                                    "Error: Permission Denied (Run as root)"
-                                                }
-                                                nix::errno::Errno::ESRCH => {
-                                                    "Error: Process no longer exists"
-                                                }
-                                                _ => "Error: Signal failed",
-                                            };
-                                            app.error_message =
-                                                Some((msg.to_string(), Instant::now()));
-                                            app.input_mode = InputMode::Normal;
-                                        }
-                                    }
-                                }
-                            }
-                            'k' | 'K' => {
-                                // Handled by InitiateKill event too, but adding here for completeness if Char is fired
-                                if let Some(target_pid) = app.target_pid {
-                                    match kill(Pid::from_raw(target_pid as i32), Signal::SIGKILL) {
-                                        Ok(_) => {
-                                            app.input_mode = InputMode::Normal;
-                                            app.fx.add_effect(fx::fade_from(
-                                                Color::White,
-                                                Color::White,
-                                                (200, Interpolation::Linear),
-                                            ));
-                                        }
-                                        Err(e) => {
-                                            let msg = match e {
-                                                nix::errno::Errno::EPERM => {
-                                                    "Error: Permission Denied (Run as root)"
-                                                }
-                                                nix::errno::Errno::ESRCH => {
-                                                    "Error: Process no longer exists"
-                                                }
-                                                _ => "Error: Signal failed",
-                                            };
-                                            app.error_message =
-                                                Some((msg.to_string(), Instant::now()));
-                                            app.input_mode = InputMode::Normal;
-                                        }
-                                    }
-                                }
-                            }
-                            'n' | 'N' => {
-                                app.input_mode = InputMode::Normal;
-                            }
-                            _ => {}
-                        }
+                    'n' | 'N' => {
+                        app.input_mode = InputMode::Normal;
                     }
                     _ => {}
-                }
-            }
+                },
+                _ => {}
+            },
             InputEvent::Backspace => {
                 if app.input_mode == InputMode::Filter {
                     app.filter_query.pop();
@@ -489,6 +450,7 @@ pub fn run_app() -> io::Result<()> {
         })?;
     }
 
+    shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     Ok(())

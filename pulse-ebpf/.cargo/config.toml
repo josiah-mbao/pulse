@@ -6,3 +6,9 @@ linker = "bpf-linker"
 
 [unstable]
 build-std = ["core"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

@@ -1,5 +1,6 @@
 pub mod collector;
 pub mod cpu;
+pub mod ebpf_collector;
 pub mod engine;
 pub mod memory;
 pub mod model;

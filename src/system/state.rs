@@ -1,5 +1,6 @@
 use crate::system::collector::RawProcess;
 use crate::system::memory::{memory_usage_percent, read_memory};
+use crate::system::model::{InterfaceSnapshot, NetworkStats};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -12,36 +13,11 @@ pub struct ProcessSnapshot {
     pub memory_kb: u64,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct InterfaceSnapshot {
-    pub rx_bytes: u64,
-    pub tx_bytes: u64,
-    pub operstate: String,
-    pub rx_errors: u64,
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct NetworkStats {
-    pub interfaces: HashMap<String, InterfaceSnapshot>,
-}
-
 #[derive(Clone)]
 pub struct SystemState {
     pub prev: HashMap<u32, ProcessSnapshot>,
     pub curr: HashMap<u32, ProcessSnapshot>,
     pub total_cpu_delta: u64,
-}
-
-/// The unified carrier payload bridging background I/O to the frontend loop
-#[derive(Clone)]
-pub struct TelemetryFrame {
-    pub processes: HashMap<u32, ProcessSnapshot>,
-    pub cpu_map: HashMap<u32, f32>,
-    pub global_cpu_utilization: f32,
-    pub global_mem_utilization: f32,
-    pub network: NetworkStats,
-    pub disk_sectors_read: u64,
-    pub disk_sectors_written: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

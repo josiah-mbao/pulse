@@ -1200,12 +1200,16 @@ dependencies = [
 name = "pulse"
 version = "0.7.0"
 dependencies = [
+ "anyhow",
+ "aya",
  "clap",
  "crossterm",
  "libc",
  "nix 0.31.3",
+ "pulse-common",
  "ratatui",
  "tachyonfx",
+ "tokio",
 ]
 
 [[package]]

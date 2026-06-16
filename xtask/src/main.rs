@@ -111,6 +111,9 @@ fn build_ebpf() -> anyhow::Result<()> {
     let ebpf_dir = workspace_root.join("pulse-ebpf");
 
     let status = Command::new("cargo")
+        .env_remove("RUSTUP_TOOLCHAIN")
+        .env_remove("RUSTC")
+        .env_remove("RUSTDOC")
         .current_dir(ebpf_dir)
         .args(["build", "--target", "bpfel-unknown-none"])
         .status()

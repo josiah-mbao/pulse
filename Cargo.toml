@@ -23,3 +23,7 @@ libc = "0.2.186"
 nix = { version = "0.31.3", features = ["signal"] }
 ratatui = "0.30.0"
 tachyonfx = "0.25.0"
+anyhow = "1.0"
+aya = { version = "0.13", features = ["async_tokio"] }
+tokio = { version = "1.0", features = ["full"] }
+pulse-common = { path = "pulse-common", features = ["user"] }
