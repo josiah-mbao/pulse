@@ -1,13 +1,16 @@
-use std::fs;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 
 pub fn read_memory() -> (u64, u64) {
-    // Replace unwrap with a safe fall-back to avoid crashes
-    let contents = fs::read_to_string("/proc/meminfo").unwrap_or_else(|_| String::new());
+    let file = File::open("/proc/meminfo").unwrap_or_else(|_| panic!("Failed to open /proc/meminfo"));
+    read_memory_from_reader(BufReader::new(file))
+}
 
+pub fn read_memory_from_reader<R: BufRead>(reader: R) -> (u64, u64) {
     let mut total = 0;
     let mut available = 0;
 
-    for line in contents.lines() {
+    for line in reader.lines().flatten() {
         if line.starts_with("MemTotal") {
             total = line
                 .split_whitespace()

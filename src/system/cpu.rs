@@ -1,4 +1,5 @@
-use std::fs;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 
 pub struct CpuSnapshot {
     pub total_time: u64,
@@ -6,8 +7,12 @@ pub struct CpuSnapshot {
 
 /// Reads the total CPU time from /proc/stat
 pub fn read_total_cpu_time() -> u64 {
-    let contents = fs::read_to_string("/proc/stat").unwrap_or_default();
-    let line = contents.lines().next().unwrap_or("");
+    let file = File::open("/proc/stat").unwrap_or_else(|_| panic!("Failed to open /proc/stat"));
+    read_total_cpu_time_from_reader(BufReader::new(file))
+}
+
+pub fn read_total_cpu_time_from_reader<R: BufRead>(reader: R) -> u64 {
+    let line = reader.lines().next().and_then(|l| l.ok()).unwrap_or_default();
     let parts: Vec<&str> = line.split_whitespace().collect();
 
     // Summing: user, nice, system, idle, iowait, irq, softirq
