@@ -2,7 +2,7 @@
 #![no_main]
 
 use aya_ebpf::{
-    helpers::{bpf_get_current_comm, bpf_get_current_pid_tgid},
+    helpers::bpf_get_current_pid_tgid,
     macros::{map, tracepoint},
     maps::RingBuf,
     programs::TracePointContext,
@@ -22,7 +22,10 @@ pub fn sched_process_exec(ctx: TracePointContext) -> u32 {
 
 fn try_sched_process_exec(_ctx: TracePointContext) -> Result<u32, u32> {
     let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
-    let comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
+    let mut comm = [0u8; 16];
+    unsafe {
+        aya_ebpf::helpers::r#gen::bpf_get_current_comm(&mut comm as *mut _ as *mut _, 16);
+    }
 
     let event = TraceEvent {
         pid,
@@ -50,7 +53,10 @@ pub fn sched_process_exit(ctx: TracePointContext) -> u32 {
 
 fn try_sched_process_exit(_ctx: TracePointContext) -> Result<u32, u32> {
     let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
-    let comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
+    let mut comm = [0u8; 16];
+    unsafe {
+        aya_ebpf::helpers::r#gen::bpf_get_current_comm(&mut comm as *mut _ as *mut _, 16);
+    }
 
     let event = TraceEvent {
         pid,
