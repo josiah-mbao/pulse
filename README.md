@@ -64,7 +64,7 @@ Pulse uses a multi-threaded producer-consumer pipeline ensuring filesystem and k
               │ (eBPF RingBuf) │          ▲                      │
               ▼                │          │                      │
  ┌──────────────────────────┐  │   View DTO Frame         SystemEvent
- │   ebpf_collector Thread  ├─┼──────────┼──────────────────────┘
+ │   ebpf_collector Thread  ├ ─┼──────────┼──────────────────────┘
  │   (Aya-driven consumer)  │  │   ┌──────┴──────────┐
  └──────────────────────────┘  │   │Projection Engine│◄── AppState Reducer
                                │   └─────────────────┘
