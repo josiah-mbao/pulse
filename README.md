@@ -1,9 +1,10 @@
 # Pulse
-A lightweight Linux system observability TUI written in Rust.
+
+An open-source, high-performance Linux system observability TUI written in Rust, combining low-overhead `/proc` parsing with real-time eBPF kernel lifecycle tracing.
 
 ### 🎭 Visual Evolution
 
-**Latest: v0.7 ("Zinc & Rust")**
+**Latest: v0.7 ("Zinc & Rust" with eBPF Trace Lens)**
 ![Latest Demo](docs/pulse-demo.gif)
 
 **Legacy: v0.1 (Original)**
@@ -11,87 +12,123 @@ A lightweight Linux system observability TUI written in Rust.
 
 *Live terminal recordings generated with [asciinema](https://asciinema.org).*
 
-Pulse provides high-density system and process-level metrics by reading directly from Linux kernel virtual filesystems and computing normalized deltas using a decoupled, asynchronous pipeline.
+---
+
+## 🌱 The Origin Story
+
+Pulse started on a whim and a hand-me-down laptop. 
+
+After reviving the old machine by installing Arch Linux and setting up a customized Wayland environment with Hyprland, I found myself constantly running `top` and `htop` to diagnose performance bottlenecks and slow-downs. Seeing the screen fill with rapid updates got me thinking: *How do these tools actually capture and display so much moving system telemetry in real time without lagging the system?*
+
+Arch Linux is all about building and customizing your system from the ground up, so I decided to take that philosophy to the application level. I set out to build my own system monitor from scratch to see how system resource observation works at the deepest kernel levels. 
+
+Pulse is the result of that exploration.
 
 ---
 
-## ⚙️ Current Features (v0.7 - "Zinc & Rust")
+## ⚙️ Features
+
+### 🔍 Trace (eBPF Process Lifecycle Lens)
+*   **Kernel Event Streaming**: Captures `sched_process_exec` and `sched_process_exit` events directly from the Linux kernel using safety-guaranteed eBPF probes.
+*   **Zero-Allocation Reducer**: Real-time event propagation utilizing a bounded, lock-free ring buffer directly to the TUI event loop.
+*   **Bounded Ring Buffer**: Limits in-memory userspace logs to 500 events using an eviction policy to prevent memory leaks under system load.
+*   **Trace Lens View**: A dedicated dashboard screen (key **`4`**) color-coding startup events (`EXEC` in green) and exit events (`EXIT` in crimson) with active process PIDs and names.
 
 ### 🛰️ Sentinel (Network Lens)
-- **High-Density Stages:** Dynamic panels visualizing interface health, operational states, and rx_errors.
-- **Throughput Intensity:** Real-time RX/TX rate tracking with visual intensity bars and cumulative volume stats.
-- **Sorted Interfaces:** Deterministic interface ordering for stable monitoring.
+*   **High-Density Panels**: Visualizes interface status, operational states, and receive/transmit errors.
+*   **Throughput Intensity**: Tracks live RX/TX throughput rates with visual intensity bars and cumulative stats.
+*   **Stable Sorting**: Deterministic interface indexing to prevent jumping lists.
 
 ### 📈 EKG (Telemetry Lens)
-- **Heartbeat Sparklines:** Rolling time-series history for global CPU utilization.
-- **Disk I/O Velocity:** Real-time storage tracking aggregating sectors read/written across physical drives into KiB/s.
+*   **Heartbeat Sparklines**: Rolling time-series graphs tracking global CPU utilization.
+*   **Disk I/O Velocity**: Real-time read/write rates aggregated across physical block devices.
 
 ### 🚢 Fleet (Process Lens)
-- **Stateless Projection:** Pure functional engine for shaping views (Flattened or Grouped).
-- **Container & Host Grouping:** Group processes by container namespace or virtual "host" group.
-- **Semantic Alerting:** Modern color-coded rows (Amber/Crimson) highlighting high-load processes.
-- **Instant Filtering:** Real-time process name search and filtering via `/` key.
-- **Dynamic Sorting:** Toggle between CPU and Memory priority with zero-latency updates.
-- **Process Signals:** Send SIGTERM (Graceful) or SIGKILL (Force) directly via a confirmation dialog.
-
-### 🎨 Modern UI Engine
-- **Zinc & Rust Theme:** A bespoke, high-contrast palette designed for modern terminals.
-- **Dumb Renderer:** A fully stateless presentation layer driven by high-level `ViewRow` abstractions.
-- **Fluid Transitions:** 150ms alpha-blended fade transitions powered by `tachyonfx`.
-- **Adaptive Polling:** Intelligent loop timing that drops to 16ms during animations for 60fps smoothness.
+*   **Stateless Projection**: Functional core for filtering, searching, and structuring process trees.
+*   **Flexible Grouping**: Toggle between flat process lists and groupings by container namespaces or virtual "hosts".
+*   **Signals & Control**: Send process signals (`SIGTERM` or `SIGKILL`) directly from the UI.
 
 ---
 
-## 🏗️ Architecture & Design
+## 🧱 Architecture
 
-Pulse uses a multi-threaded producer-consumer model to ensure that `/proc` filesystem I/O never blocks the terminal rendering thread.
-
-### 🧱 System Flow
+Pulse uses a multi-threaded producer-consumer pipeline ensuring filesystem and kernel I/O never block TUI drawing loops.
 
 ```text
-  ┌──────────────────┐      ┌──────────────────────────────┐
-  │  Renderer Thread │      │      Collector Thread        │
-  │  (Stateless View)│      │  (Engine Logic @500ms sampling)│
-  └────────┬─────────┘      └──────────────┬───────────────┘
-           ▲                               │
-           │                               │
-    View Pipeline DTO                MPSC Channel
-           │                               │
-  ┌────────┴─────────┐                     │
-  │Projection Engine │◄────── AppState ────┘
-  │ (Functional Core)│
-  └──────────────────┘
+       KERNEL SPACE            │                 USERSPACE (TUI)
+                               │
+ ┌──────────────────────────┐  │  ┌───────────────┐      ┌────────────────┐
+ │   sched_process_exec/    │  │  │  TUI Renderer │      │    Collector   │
+ │   sched_process_exit     │  │  │ (Stateless v4)│      │ (/proc parser) │
+ └────────────┬─────────────┘  │  └───────┬───────┘      └───────┬────────┘
+              │ (eBPF RingBuf) │          ▲                      │
+              ▼                │          │                      │
+ ┌──────────────────────────┐  │   View DTO Frame         SystemEvent
+ │   ebpf_collector Thread  ├─┼──────────┼──────────────────────┘
+ │   (Aya-driven consumer)  │  │   ┌──────┴──────────┐
+ └──────────────────────────┘  │   │Projection Engine│◄── AppState Reducer
+                               │   └─────────────────┘
 ```
 
 ---
 
-## 📁 Structure
+## 📁 Workspace Structure
 
-```text
-src/
-├── tui/                 # Terminal UI Layer
-│   ├── app.rs           # UI State & Orchestration
-│   ├── projection.rs    # Pure functional view-shaping engine
-│   ├── renderer.rs      # Zinc & Rust "Dumb" presentation layer
-│   └── input.rs         # Vim-style navigation & event handling
-└── system/              # Telemetry Engine
-    ├── model.rs         # Unified domain contracts & typology
-    ├── collector.rs     # Low-level /proc parser
-    ├── state.rs         # Delta computation & snapshot logic
-    ├── engine.rs        # Multi-threaded orchestration
-    └── [cpu/mem/disk]   # Domain-specific virtual FS parsers
-```
+Pulse is structured as a multi-crate Rust workspace:
+
+*   **`pulse`** (Core): The userspace entry point, engine, state reducers, and Ratatui-based rendering layers.
+*   **`pulse-common`**: Shared POD (Plain Old Data) structs compiled under `#![no_std]` for binary-level compatibility between userspace and the kernel.
+*   **`pulse-ebpf`**: The kernel-space eBPF program utilizing `aya-ebpf` to hook into kernel tracepoints.
+*   **`xtask`**: Development build script pipeline (automates eBPF compilation, local CLI tracing, and workspace check pipelines).
 
 ---
 
-## 🚧 Roadmap
+## ⚡ Getting Started
 
-- **Sentinel Waveforms:** Replace static cards with real-time network sparklines.
-- **Container Metadata:** Deep-dive into container image names and namespace internals.
-- **Interactive Graphs:** Expand EKG into full-screen historical analysis modes.
+### Prerequisites
+*   **Rust (Nightly)**: Required for building the `#![no_std]` eBPF program (`bpfel-unknown-none` target).
+*   **LLVM / Clang**: For compiled eBPF assets.
+*   **bpf-linker**: Installed via cargo:
+    ```bash
+    cargo install bpf-linker
+    ```
+
+### Compilation & Running
+
+1.  **Clone the Repository**:
+    ```bash
+    git clone https://github.com/josiah-mbao/pulse.git
+    cd pulse
+    ```
+2.  **Build the eBPF Program**:
+    Use the `xtask` workspace script to compile the eBPF probes in release mode (optimizations are required for BPF verifier loading):
+    ```bash
+    cargo run --package xtask -- build-ebpf
+    ```
+3.  **Run the Observability TUI**:
+    Since loading eBPF maps and attaching to tracepoints requires superuser permissions, launch the compiled binary with `sudo`:
+    ```bash
+    sudo ./target/debug/pulse
+    ```
+    *   *Press keys **`1`**, **`2`**, **`3`**, or **`4`** to switch between Fleet, EKG, Sentinel, and Trace lenses respectively.*
 
 ---
 
-## 🧠 Philosophy
+## 🛠️ Helper Diagnostics & Development
 
-Pulse is built from first principles. It is not a wrapper; it is an exploration of the Linux kernel's internal telemetry. The goal is mechanical sympathy: understanding system behavior through direct, zero-allocation observation.
+*   **Standalone Trace Console**:
+    Run a terminal-only version of the eBPF tracer directly dump process events to stdout:
+    ```bash
+    sudo cargo run --package xtask -- trace
+    ```
+*   **Workspace Checks (Format, Clippy, Tests)**:
+    Run the workspace sanity checker script before staging changes:
+    ```bash
+    cargo run --package xtask -- ci
+    ```
+
+---
+
+## 📄 License
+
+This project is open-source and licensed under the [MIT License](LICENSE).
