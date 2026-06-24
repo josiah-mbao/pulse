@@ -27,3 +27,9 @@ anyhow = "1.0"
 aya = { version = "0.13", features = ["async_tokio"] }
 tokio = { version = "1.0", features = ["full"] }
 pulse-common = { path = "pulse-common", features = ["user"] }
+
+[profile.dev.package.pulse-ebpf]
+opt-level = 3
+
+[profile.release.package.pulse-ebpf]
+opt-level = 3

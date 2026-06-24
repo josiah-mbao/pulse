@@ -28,12 +28,47 @@ use pulse::system::model::{
 use pulse_common::TraceEvent;
 
 const MAX_HISTORY_POINTS: usize = 200;
+const TRACE_BUFFER_CAPACITY: usize = 500;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Tab {
     Fleet,
     Ekg,
     Sentinel,
+    Trace,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum TraceEventKind {
+    Exec,
+    Exit,
+}
+
+pub struct TraceEventView {
+    pub pid: u32,
+    pub kind: TraceEventKind,
+    pub comm: String,
+}
+
+impl From<TraceEvent> for TraceEventView {
+    fn from(event: TraceEvent) -> Self {
+        let kind = if event.event_type == pulse_common::EVENT_EXEC {
+            TraceEventKind::Exec
+        } else {
+            TraceEventKind::Exit
+        };
+
+        let comm = String::from_utf8_lossy(&event.comm)
+            .trim_end_matches('\0')
+            .trim()
+            .to_string();
+
+        Self {
+            pid: event.pid,
+            kind,
+            comm,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -71,6 +106,7 @@ pub struct AppState {
     pub prev_disk_write: u64,
     pub current_speeds: HashMap<String, (f32, f32)>,
     pub sorted_interfaces: Vec<String>,
+    pub trace_log: VecDeque<TraceEventView>,
 }
 
 impl AppState {
@@ -102,6 +138,7 @@ impl AppState {
             prev_disk_write: 0,
             current_speeds: HashMap::new(),
             sorted_interfaces: Vec::new(),
+            trace_log: VecDeque::with_capacity(TRACE_BUFFER_CAPACITY),
         }
     }
 
@@ -179,9 +216,19 @@ impl AppState {
         self.refresh_pipeline();
     }
 
-    pub fn apply_trace(&mut self, _event: TraceEvent) {
-        // Phase 2: Capture for internal state.
-        // Integration with UI (e.g., Trace Lens) will happen in Phase 3.
+    pub fn apply_trace(&mut self, event: TraceEvent) {
+        if self.paused {
+            return;
+        }
+
+        if self.trace_log.len() >= TRACE_BUFFER_CAPACITY {
+            self.trace_log.pop_front();
+        }
+        self.trace_log.push_back(TraceEventView::from(event));
+    }
+
+    pub fn trace_view(&self) -> impl Iterator<Item = &TraceEventView> {
+        self.trace_log.iter()
     }
 
     pub fn refresh_pipeline(&mut self) {
@@ -299,6 +346,19 @@ pub fn run_app() -> io::Result<()> {
                 }
             }
             InputEvent::Char(c) => match app.input_mode {
+                InputMode::Normal => {
+                    if c == '4' && app.active_tab != Tab::Trace {
+                        app.active_tab = Tab::Trace;
+                        if let Ok(size) = terminal.size() {
+                            let main_area =
+                                Rect::new(0, 6, size.width, size.height.saturating_sub(7));
+                            app.fx.add_effect(
+                                fx::fade_from(BG_CANVAS, BG_CANVAS, (150, Interpolation::QuadOut))
+                                    .with_area(main_area),
+                            );
+                        }
+                    }
+                }
                 InputMode::Filter => {
                     app.filter_query.push(c);
                     app.refresh_pipeline();
@@ -364,7 +424,6 @@ pub fn run_app() -> io::Result<()> {
                     }
                     _ => {}
                 },
-                _ => {}
             },
             InputEvent::Backspace => {
                 if app.input_mode == InputMode::Filter {
@@ -454,4 +513,55 @@ pub fn run_app() -> io::Result<()> {
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_apply_trace_adds_events_and_respects_capacity() {
+        let mut app = AppState::new();
+        assert_eq!(app.trace_log.len(), 0);
+
+        // Add 500 events (up to capacity)
+        for i in 0..TRACE_BUFFER_CAPACITY {
+            let event = TraceEvent {
+                pid: i as u32,
+                event_type: pulse_common::EVENT_EXEC,
+                comm: [0; 16],
+            };
+            app.apply_trace(event);
+        }
+        assert_eq!(app.trace_log.len(), TRACE_BUFFER_CAPACITY);
+        assert_eq!(app.trace_log.front().unwrap().pid, 0);
+
+        // Add one more event to trigger eviction
+        let extra_event = TraceEvent {
+            pid: 9999,
+            event_type: pulse_common::EVENT_EXIT,
+            comm: [0; 16],
+        };
+        app.apply_trace(extra_event);
+
+        assert_eq!(app.trace_log.len(), TRACE_BUFFER_CAPACITY);
+        // The first event (pid 0) should be evicted, so the front is now pid 1
+        assert_eq!(app.trace_log.front().unwrap().pid, 1);
+        assert_eq!(app.trace_log.back().unwrap().pid, 9999);
+        assert_eq!(app.trace_log.back().unwrap().kind, TraceEventKind::Exit);
+    }
+
+    #[test]
+    fn test_apply_trace_ignores_events_when_paused() {
+        let mut app = AppState::new();
+        app.paused = true;
+
+        let event = TraceEvent {
+            pid: 123,
+            event_type: pulse_common::EVENT_EXEC,
+            comm: [0; 16],
+        };
+        app.apply_trace(event);
+        assert_eq!(app.trace_log.len(), 0);
+    }
 }

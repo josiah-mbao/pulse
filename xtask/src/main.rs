@@ -29,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn run_trace() -> anyhow::Result<()> {
-    let mut bpf = Ebpf::load_file("target/bpfel-unknown-none/debug/pulse-ebpf")
+    let mut bpf = Ebpf::load_file("target/bpfel-unknown-none/release/pulse-ebpf")
         .context("Failed to load eBPF object")?;
 
     let prog_exec: &mut TracePoint = bpf
@@ -115,7 +115,7 @@ fn build_ebpf() -> anyhow::Result<()> {
         .env_remove("RUSTC")
         .env_remove("RUSTDOC")
         .current_dir(ebpf_dir)
-        .args(["build", "--target", "bpfel-unknown-none"])
+        .args(["build", "--release", "--target", "bpfel-unknown-none"])
         .status()
         .context("Failed to run cargo build for eBPF")?;
 

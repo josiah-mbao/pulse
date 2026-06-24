@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub fn load_ebpf() -> anyhow::Result<Ebpf> {
-    Ebpf::load_file("target/bpfel-unknown-none/debug/pulse-ebpf")
+    Ebpf::load_file("target/bpfel-unknown-none/release/pulse-ebpf")
         .context("Failed to load eBPF object")
 }
 

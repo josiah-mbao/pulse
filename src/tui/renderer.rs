@@ -1,4 +1,4 @@
-use crate::tui::app::{AppState, InputMode, Tab};
+use crate::tui::app::{AppState, InputMode, Tab, TraceEventKind};
 use pulse::system::memory::{memory_usage_percent, read_memory};
 use pulse::system::model::{ProcessSnapshot, ViewRow};
 use pulse::system::process::get_extra_info;
@@ -53,6 +53,7 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
         ),
         Tab::Ekg => render_ekg_tab(frame, app, chunks[2]),
         Tab::Sentinel => render_sentinel_tab(frame, app, chunks[2]),
+        Tab::Trace => render_trace_tab(frame, app, chunks[2]),
     }
 
     render_footer(frame, app, chunks[3]);
@@ -63,11 +64,12 @@ pub fn render(frame: &mut Frame, app: &mut AppState) {
 }
 
 fn render_tabs(frame: &mut Frame, app: &AppState, area: Rect) {
-    let titles = vec![" FLEET ", " EKG ", " SENTINEL "];
+    let titles = vec![" FLEET ", " EKG ", " SENTINEL ", " TRACE "];
     let index = match app.active_tab {
         Tab::Fleet => 0,
         Tab::Ekg => 1,
         Tab::Sentinel => 2,
+        Tab::Trace => 3,
     };
 
     let tabs = Tabs::new(titles)
@@ -544,9 +546,9 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     let (text, style) = match app.input_mode {
         InputMode::Normal => {
             let base_text = if app.paused {
-                " [PAUSED] | [1-3] Lenses | / Filter | s/m Sort | j/k Nav | t Tree | ? Help | q Quit "
+                " [PAUSED] | [1-4] Lenses | / Filter | s/m Sort | j/k Nav | t Tree | ? Help | q Quit "
             } else {
-                " [1-3] Lenses | / Filter | s/m Sort | j/k Nav | t Tree | ? Help | q Quit "
+                " [1-4] Lenses | / Filter | s/m Sort | j/k Nav | t Tree | ? Help | q Quit "
             };
             let style = if app.paused {
                 Style::default()
@@ -595,7 +597,7 @@ fn render_help_modal(frame: &mut Frame, area: Rect) {
     let help_rows = vec![
         Row::new(vec![
             Cell::from(Line::from(vec![
-                Span::styled("[1, 2, 3]", Style::default().fg(ACCENT_RUST)),
+                Span::styled("[1, 2, 3, 4]", Style::default().fg(ACCENT_RUST)),
                 Span::styled(" Switch Views", Style::default().fg(TEXT_MUTED)),
             ])),
             Cell::from(Line::from(vec![
@@ -671,4 +673,66 @@ fn center_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
+}
+
+fn render_trace_tab(frame: &mut Frame, app: &AppState, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(BORDER_MUTED))
+        .title(Span::styled(
+            " Trace Lens ",
+            Style::default().fg(TEXT_PRIMARY),
+        ));
+
+    let inner_area = block.inner(area);
+    frame.render_widget(block, area);
+
+    let items: Vec<Line> = app
+        .trace_view()
+        .map(|event| {
+            let (kind_str, color) = match event.kind {
+                TraceEventKind::Exec => ("EXEC", Color::Green),
+                TraceEventKind::Exit => ("EXIT", COLOR_CRIMSON),
+            };
+
+            Line::from(vec![
+                Span::styled(
+                    format!("[{:<4}] ", kind_str),
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("pid={:<8} ", event.pid),
+                    Style::default().fg(TEXT_MUTED),
+                ),
+                Span::styled(
+                    format!("comm={}", event.comm),
+                    Style::default().fg(TEXT_PRIMARY),
+                ),
+            ])
+        })
+        .collect();
+
+    if items.is_empty() {
+        let placeholder =
+            Paragraph::new("Waiting for trace events...").style(Style::default().fg(TEXT_MUTED));
+        frame.render_widget(placeholder, inner_area);
+        return;
+    }
+
+    // Newest at bottom: Calculate how many lines we can show and pad if necessary
+    let height = inner_area.height as usize;
+    let (skip, padding) = if items.len() >= height {
+        (items.len() - height, 0)
+    } else {
+        (0, height - items.len())
+    };
+
+    let mut final_lines = Vec::with_capacity(height);
+    for _ in 0..padding {
+        final_lines.push(Line::from(""));
+    }
+    final_lines.extend(items.into_iter().skip(skip));
+
+    let paragraph = Paragraph::new(final_lines);
+    frame.render_widget(paragraph, inner_area);
 }
