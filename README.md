@@ -1,58 +1,111 @@
 # Pulse
 
-An open-source, high-performance Linux system observability TUI written in Rust, combining low-overhead `/proc` parsing with real-time eBPF kernel lifecycle tracing.
+<p align="center">
+  <img
+    src="https://github.com/user-attachments/assets/f719d3aa-7d57-404f-b31b-0aa4e6c32e94"
+    alt="Pulse mascot"
+    width="260"
+  />
+</p>
 
-### 🎭 Visual Evolution
+<p align="center">
+  <strong>An open-source Linux observability TUI built with Rust.</strong><br/>
+  Combining low-overhead <code>/proc</code> telemetry with real-time eBPF kernel lifecycle tracing.
+</p>
 
-**Latest: v0.7 ("Zinc & Rust" with eBPF Trace Lens)**
+<!-- Uncomment these as you add them -->
+<!--
+<p align="center">
+  <img src="https://img.shields.io/github/actions/workflow/status/josiah-mbao/pulse/ci.yml?style=flat-square" />
+  <img src="https://img.shields.io/github/license/josiah-mbao/pulse?style=flat-square" />
+  <img src="https://img.shields.io/github/stars/josiah-mbao/pulse?style=flat-square" />
+  <img src="https://img.shields.io/badge/Linux-eBPF-orange?style=flat-square" />
+</p>
+-->
+
+---
+
+## 🎭 Visual Evolution
+
+### Latest — v0.7 "Zinc & Rust"
+
 ![Latest Demo](docs/pulse-demo.gif)
 
-**Legacy: v0.1 (Original)**
+### Original — v0.1
+
 ![Original Demo](docs/demo.gif)
 
 *Live terminal recordings generated with [asciinema](https://asciinema.org).*
 
 ---
 
-## 🌱 The Origin Story
+# 🌱 The Origin Story
 
-Pulse started on a whim and a hand-me-down laptop. 
+Pulse started on a whim and a hand-me-down laptop.
 
-After reviving the old machine by installing Arch Linux and setting up a customized Wayland environment with Hyprland, I found myself constantly running `top` and `htop` to diagnose performance bottlenecks and slow-downs. Seeing the screen fill with rapid updates got me thinking: *How do these tools actually capture and display so much moving system telemetry in real time without lagging the system?*
+After reviving an old machine with Arch Linux and building a custom Hyprland desktop, I found myself constantly reaching for `top` and `htop` whenever something felt slow.
 
-Arch Linux is all about building and customizing your system from the ground up, so I decided to take that philosophy to the application level. I set out to build my own system monitor from scratch to see how system resource observation works at the deepest kernel levels. 
+Watching thousands of values update in real time sparked a question:
+
+> **How can these tools continuously observe an entire Linux system without becoming the bottleneck themselves?**
+
+Arch Linux encourages understanding your system from the ground up, so I decided to extend that philosophy to application development.
+
+Rather than treating Linux as a black box, I wanted to understand how observability works from the kernel upward—how processes are born, how resources are consumed, and how telemetry moves from the operating system into a responsive user interface.
 
 Pulse is the result of that exploration.
 
 ---
 
-## ⚙️ Features
+# ⚙️ Features
 
-### 🔍 Trace (eBPF Process Lifecycle Lens)
-*   **Kernel Event Streaming**: Captures `sched_process_exec` and `sched_process_exit` events directly from the Linux kernel using safety-guaranteed eBPF probes.
-*   **Zero-Allocation Reducer**: Real-time event propagation utilizing a bounded, lock-free ring buffer directly to the TUI event loop.
-*   **Bounded Ring Buffer**: Limits in-memory userspace logs to 500 events using an eviction policy to prevent memory leaks under system load.
-*   **Trace Lens View**: A dedicated dashboard screen (key **`4`**) color-coding startup events (`EXEC` in green) and exit events (`EXIT` in crimson) with active process PIDs and names.
+## 🔍 Trace — eBPF Process Lifecycle Lens
 
-### 🛰️ Sentinel (Network Lens)
-*   **High-Density Panels**: Visualizes interface status, operational states, and receive/transmit errors.
-*   **Throughput Intensity**: Tracks live RX/TX throughput rates with visual intensity bars and cumulative stats.
-*   **Stable Sorting**: Deterministic interface indexing to prevent jumping lists.
+Observe process activity directly from the Linux kernel.
 
-### 📈 EKG (Telemetry Lens)
-*   **Heartbeat Sparklines**: Rolling time-series graphs tracking global CPU utilization.
-*   **Disk I/O Velocity**: Real-time read/write rates aggregated across physical block devices.
-
-### 🚢 Fleet (Process Lens)
-*   **Stateless Projection**: Functional core for filtering, searching, and structuring process trees.
-*   **Flexible Grouping**: Toggle between flat process lists and groupings by container namespaces or virtual "hosts".
-*   **Signals & Control**: Send process signals (`SIGTERM` or `SIGKILL`) directly from the UI.
+- **Kernel Event Streaming** — Captures `sched_process_exec` and `sched_process_exit` events using Aya-powered eBPF tracepoints.
+- **Zero-Allocation Reducer** — Propagates kernel events through a bounded lock-free ring buffer into the UI.
+- **Bounded Event History** — Retains the latest 500 lifecycle events while preventing unbounded memory growth.
+- **Trace Lens** — Dedicated dashboard (`4`) highlighting `EXEC` events in green and `EXIT` events in crimson.
 
 ---
 
-## 🧱 Architecture
+## 🛰️ Sentinel — Network Lens
 
-Pulse uses a multi-threaded producer-consumer pipeline ensuring filesystem and kernel I/O never block TUI drawing loops.
+Real-time network interface observability.
+
+- Interface operational status
+- RX / TX throughput
+- Receive and transmit errors
+- Stable interface ordering
+
+---
+
+## 📈 EKG — Telemetry Lens
+
+System-wide performance telemetry.
+
+- Live CPU sparklines
+- Memory utilization
+- Disk read/write velocity
+- Rolling historical metrics
+
+---
+
+## 🚢 Fleet — Process Lens
+
+Navigate and manage running processes.
+
+- Stateless filtering
+- Fast searching
+- Namespace-aware grouping
+- Send `SIGTERM` and `SIGKILL` directly from the UI
+
+---
+
+# 🧱 Architecture
+
+Pulse uses a multi-threaded producer-consumer architecture that ensures filesystem polling and kernel event collection never block terminal rendering.
 
 ```text
        KERNEL SPACE            │                 USERSPACE (TUI)
@@ -64,71 +117,102 @@ Pulse uses a multi-threaded producer-consumer pipeline ensuring filesystem and k
               │ (eBPF RingBuf) │          ▲                      │
               ▼                │          │                      │
  ┌──────────────────────────┐  │   View DTO Frame         SystemEvent
- │   ebpf_collector Thread  ├ ─┼──────────┼──────────────────────┘
+ │   ebpf_collector Thread  ├──┼──────────┼──────────────────────┘
  │   (Aya-driven consumer)  │  │   ┌──────┴──────────┐
  └──────────────────────────┘  │   │Projection Engine│◄── AppState Reducer
                                │   └─────────────────┘
 ```
 
----
-
-## 📁 Workspace Structure
-
-Pulse is structured as a multi-crate Rust workspace:
-
-*   **`pulse`** (Core): The userspace entry point, engine, state reducers, and Ratatui-based rendering layers.
-*   **`pulse-common`**: Shared POD (Plain Old Data) structs compiled under `#![no_std]` for binary-level compatibility between userspace and the kernel.
-*   **`pulse-ebpf`**: The kernel-space eBPF program utilizing `aya-ebpf` to hook into kernel tracepoints.
-*   **`xtask`**: Development build script pipeline (automates eBPF compilation, local CLI tracing, and workspace check pipelines).
+The architecture separates collection, reduction, and rendering into independent stages, allowing Pulse to maintain responsive terminal performance even under heavy system activity.
 
 ---
 
-## ⚡ Getting Started
+# 📁 Workspace Structure
 
-### Prerequisites
-*   **Rust (Nightly)**: Required for building the `#![no_std]` eBPF program (`bpfel-unknown-none` target).
-*   **LLVM / Clang**: For compiled eBPF assets.
-*   **bpf-linker**: Installed via cargo:
-    ```bash
-    cargo install bpf-linker
-    ```
+Pulse is organized as a multi-crate Rust workspace.
 
-### Compilation & Running
-
-1.  **Clone the Repository**:
-    ```bash
-    git clone https://github.com/josiah-mbao/pulse.git
-    cd pulse
-    ```
-2.  **Build the eBPF Program**:
-    Use the `xtask` workspace script to compile the eBPF probes in release mode (optimizations are required for BPF verifier loading):
-    ```bash
-    cargo run --package xtask -- build-ebpf
-    ```
-3.  **Run the Observability TUI**:
-    Since loading eBPF maps and attaching to tracepoints requires superuser permissions, launch the compiled binary with `sudo`:
-    ```bash
-    sudo ./target/debug/pulse
-    ```
-    *   *Press keys **`1`**, **`2`**, **`3`**, or **`4`** to switch between Fleet, EKG, Sentinel, and Trace lenses respectively.*
+| Crate | Purpose |
+|-------|---------|
+| **pulse** | Main application, reducers, state management and Ratatui renderer |
+| **pulse-common** | Shared `#![no_std]` POD types between kernel and userspace |
+| **pulse-ebpf** | Aya eBPF kernel program |
+| **xtask** | Build automation, tracing utilities and CI helpers |
 
 ---
 
-## 🛠️ Helper Diagnostics & Development
+# ⚡ Getting Started
 
-*   **Standalone Trace Console**:
-    Run a terminal-only version of the eBPF tracer directly dump process events to stdout:
-    ```bash
-    sudo cargo run --package xtask -- trace
-    ```
-*   **Workspace Checks (Format, Clippy, Tests)**:
-    Run the workspace sanity checker script before staging changes:
-    ```bash
-    cargo run --package xtask -- ci
-    ```
+## Prerequisites
+
+- Rust (Nightly)
+- LLVM / Clang
+- `bpf-linker`
+
+```bash
+cargo install bpf-linker
+```
 
 ---
 
-## 📄 License
+## Clone
 
-This project is open-source and licensed under the [MIT License](LICENSE).
+```bash
+git clone https://github.com/josiah-mbao/pulse.git
+
+cd pulse
+```
+
+---
+
+## Build the eBPF Program
+
+```bash
+cargo run --package xtask -- build-ebpf
+```
+
+---
+
+## Run Pulse
+
+```bash
+sudo ./target/debug/pulse
+```
+
+Switch between observability lenses:
+
+| Key | Lens |
+|----|------|
+| `1` | Fleet |
+| `2` | EKG |
+| `3` | Sentinel |
+| `4` | Trace |
+
+---
+
+# 🛠️ Development
+
+### Live Trace Console
+
+Stream kernel lifecycle events directly to the terminal.
+
+```bash
+sudo cargo run --package xtask -- trace
+```
+
+---
+
+### Workspace Checks
+
+Run formatting, linting and tests.
+
+```bash
+cargo run --package xtask -- ci
+```
+
+---
+
+# 📄 License
+
+Pulse is open source and released under the MIT License.
+
+See [LICENSE](LICENSE).
