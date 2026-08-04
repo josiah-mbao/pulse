@@ -217,6 +217,11 @@ impl AppState {
     }
 
     pub fn apply_trace(&mut self, event: TraceEvent) {
+        static FIRST_APPLY_TRACE: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(true);
+        if FIRST_APPLY_TRACE.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            // eprintln!("DEBUG: first apply_trace() executed");
+        }
         if self.paused {
             return;
         }
@@ -267,6 +272,7 @@ pub fn run_app() -> io::Result<()> {
     let engine = Engine::new();
     let shutdown = Arc::new(AtomicBool::new(false));
     let rx = engine.spawn_collectors(Arc::clone(&shutdown));
+    let mut first_trace_received = false;
 
     loop {
         let now = Instant::now();
@@ -276,7 +282,13 @@ pub fn run_app() -> io::Result<()> {
         while let Ok(event) = rx.try_recv() {
             match event {
                 SystemEvent::Tick(frame) => app.apply_tick(frame),
-                SystemEvent::Trace(event) => app.apply_trace(event),
+                SystemEvent::Trace(event) => {
+                    if !first_trace_received {
+                        // eprintln!("DEBUG: first SystemEvent::Trace received by the TUI");
+                        first_trace_received = true;
+                    }
+                    app.apply_trace(event);
+                }
             }
         }
 

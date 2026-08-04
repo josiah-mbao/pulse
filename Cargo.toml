@@ -2,6 +2,7 @@
 name = "pulse"
 version = "0.7.0"
 edition = "2024"
+default-run = "pulse"
 
 [workspace]
 members = [

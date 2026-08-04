@@ -31,8 +31,8 @@ pub fn read_input(timeout: Duration) -> InputEvent {
         return match key.code {
             KeyCode::Char('q') => InputEvent::Quit,
             // Arrow keys + Vim bindings
-            KeyCode::Up => InputEvent::Up,
-            KeyCode::Char('k') => InputEvent::InitiateKill,
+            KeyCode::Up | KeyCode::Char('k') => InputEvent::Up,
+            KeyCode::Char('x') => InputEvent::InitiateKill,
             KeyCode::Down | KeyCode::Char('j') => InputEvent::Down,
             KeyCode::Char('g') => InputEvent::Top,
             KeyCode::Char('G') => {

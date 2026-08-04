@@ -9,35 +9,46 @@ pub struct RawProcess {
     pub memory_kb: u64,
 }
 
-fn read_name(pid: u32) -> Option<String> {
-    fs::read_to_string(format!("/proc/{}/comm", pid))
-        .ok()
-        .map(|s| s.trim().to_string())
-}
+pub fn parse_stat_file(pid: u32) -> Option<RawProcess> {
+    let content = fs::read_to_string(format!("/proc/{}/stat", pid)).ok()?;
 
-fn read_memory(pid: u32) -> Option<u64> {
-    let content = fs::read_to_string(format!("/proc/{}/status", pid)).ok()?;
-
-    for line in content.lines() {
-        if line.starts_with("VmRSS:") {
-            return line.split_whitespace().nth(1)?.parse().ok();
-        }
+    // Find the first '(' and the last ')' to extract process name (comm)
+    let open_paren = content.find('(')?;
+    let close_paren = content.rfind(')')?;
+    if open_paren >= close_paren {
+        return None;
     }
 
-    None
-}
+    let name = content[open_paren + 1..close_paren].to_string();
 
-/// Parses CPU time and PPID from /proc/[pid]/stat
-/// PPID is the 4th field (index 3), utime is index 13, stime is index 14.
-fn read_stat_info(pid: u32) -> Option<(u32, u64)> {
-    let content = fs::read_to_string(format!("/proc/{}/stat", pid)).ok()?;
-    let parts: Vec<&str> = content.split_whitespace().collect();
+    // The rest of the fields start after the last ')'
+    let rest = &content[close_paren + 1..];
+    let parts: Vec<&str> = rest.split_whitespace().collect();
 
-    let ppid: u32 = parts.get(3)?.parse().ok()?;
-    let utime: u64 = parts.get(13)?.parse().ok()?;
-    let stime: u64 = parts.get(14)?.parse().ok()?;
+    // Index mapping (0-based after the last ')')
+    // index 0: state (Field 3)
+    // index 1: ppid (Field 4)
+    // index 11: utime (Field 14)
+    // index 12: stime (Field 15)
+    // index 21: rss (Field 24)
 
-    Some((ppid, utime + stime))
+    let ppid: u32 = parts.get(1)?.parse().ok()?;
+    let utime: u64 = parts.get(11)?.parse().ok()?;
+    let stime: u64 = parts.get(12)?.parse().ok()?;
+    let rss: u64 = parts.get(21)?.parse().ok()?;
+
+    let page_size_kb = match unsafe { libc::sysconf(libc::_SC_PAGESIZE) } {
+        val if val > 0 => (val as u64) / 1024,
+        _ => 4,
+    };
+
+    Some(RawProcess {
+        pid,
+        ppid,
+        name,
+        cpu_time: utime + stime,
+        memory_kb: rss * page_size_kb,
+    })
 }
 
 pub fn collect_processes() -> Vec<RawProcess> {
@@ -57,28 +68,9 @@ pub fn collect_processes() -> Vec<RawProcess> {
             Err(_) => continue,
         };
 
-        let name = match read_name(pid) {
-            Some(n) => n,
-            None => continue,
-        };
-
-        let memory_kb = match read_memory(pid) {
-            Some(m) => m,
-            None => continue,
-        };
-
-        let (ppid, cpu_time) = match read_stat_info(pid) {
-            Some(info) => info,
-            None => continue,
-        };
-
-        out.push(RawProcess {
-            pid,
-            ppid,
-            name,
-            memory_kb,
-            cpu_time,
-        });
+        if let Some(proc) = parse_stat_file(pid) {
+            out.push(proc);
+        }
     }
 
     out

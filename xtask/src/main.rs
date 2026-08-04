@@ -13,6 +13,10 @@ enum Cli {
     BuildEbpf,
     /// Run all CI checks (fmt, clippy, test)
     Ci,
+    /// Build everything and launch Pulse
+    Dev,
+    /// Run Pulse
+    Run,
     /// Live process lifecycle tracing
     Trace,
 }
@@ -22,6 +26,8 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli {
         Cli::BuildEbpf => build_ebpf()?,
+        Cli::Dev => dev()?,
+        Cli::Run => run_userspace()?,
         Cli::Ci => run_ci()?,
         Cli::Trace => run_trace().await?,
     }
@@ -59,16 +65,22 @@ async fn run_trace() -> anyhow::Result<()> {
                 println!("Stopping...");
                 break;
             }
-            Some(event) = async {
-                let entry = events.next()?;
-                let event = unsafe { core::ptr::read_unaligned(entry.as_ptr() as *const TraceEvent) };
-                Some(event)
+            res = async {
+                if let Some(entry) = events.next() {
+                    let event = unsafe { core::ptr::read_unaligned(entry.as_ptr() as *const TraceEvent) };
+                    Some(event)
+                } else {
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                    None
+                }
             } => {
-                let type_str = if event.event_type == EVENT_EXEC { "EXEC" } else { "EXIT" };
-                let comm = core::str::from_utf8(&event.comm)
-                    .unwrap_or("unknown")
-                    .trim_end_matches('\0');
-                println!("[{}] pid={} comm={}", type_str, event.pid, comm);
+                if let Some(event) = res {
+                    let type_str = if event.event_type == EVENT_EXEC { "EXEC" } else { "EXIT" };
+                    let comm = core::str::from_utf8(&event.comm)
+                        .unwrap_or("unknown")
+                        .trim_end_matches('\0');
+                    println!("[{}] pid={} comm={}", type_str, event.pid, comm);
+                }
             }
         }
     }
@@ -107,13 +119,12 @@ fn run(command: &str, args: &[&str]) -> anyhow::Result<()> {
 
 fn build_ebpf() -> anyhow::Result<()> {
     println!("Building pulse-ebpf...");
+
     let workspace_root = std::env::current_dir()?;
     let ebpf_dir = workspace_root.join("pulse-ebpf");
 
     let status = Command::new("cargo")
-        .env_remove("RUSTUP_TOOLCHAIN")
-        .env_remove("RUSTC")
-        .env_remove("RUSTDOC")
+        .arg("+nightly")
         .current_dir(ebpf_dir)
         .args(["build", "--release", "--target", "bpfel-unknown-none"])
         .status()
@@ -122,5 +133,15 @@ fn build_ebpf() -> anyhow::Result<()> {
     if !status.success() {
         anyhow::bail!("eBPF build failed");
     }
+
     Ok(())
+}
+
+fn run_userspace() -> anyhow::Result<()> {
+    run("cargo", &["run", "--package", "pulse"])
+}
+
+fn dev() -> anyhow::Result<()> {
+    build_ebpf()?;
+    run_userspace()
 }
