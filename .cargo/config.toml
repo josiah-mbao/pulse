@@ -1,0 +1,4 @@
+[alias]
+dev = "run -p xtask -- dev"
+trace = "run -p xtask -- trace"
+ci = "run -p xtask -- ci"

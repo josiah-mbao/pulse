@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: cargo
+
+      - name: Install nightly Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
+          components: rust-src
+
+      - name: Install cargo-binstall
+        run: |
+          curl -LsSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install.sh | sh
+          export PATH="$HOME/.cargo/bin:$PATH"
+
+      - name: Install bpf-linker via cargo-binstall
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo binstall -y bpf-linker
+
+      - name: Build release binary
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo build --release
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          generate_release_notes: true
+          files: target/release/pulse

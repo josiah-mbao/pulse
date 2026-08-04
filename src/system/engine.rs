@@ -55,8 +55,16 @@ impl Engine {
         let ebpf_tx = event_tx.clone();
         let ebpf_shutdown = Arc::clone(&shutdown);
         thread::spawn(move || {
-            if let Ok(bpf) = load_ebpf() {
-                let _ = run_trace_task(bpf, ebpf_tx, ebpf_shutdown);
+            // eprintln!("DEBUG: eBPF thread spawned");
+            match load_ebpf() {
+                Ok(bpf) => {
+                    if let Err(e) = run_trace_task(bpf, ebpf_tx, ebpf_shutdown) {
+                        eprintln!("Pulse eBPF collector error: {:?}", e);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Pulse failed to load eBPF program: {:?}", e);
+                }
             }
         });
 
@@ -98,5 +106,37 @@ impl Engine {
         });
 
         rx
+    }
+}
+
+pub fn run_top_loop() {
+    let mut engine = Engine::new();
+    println!("Printing top processes (Press Ctrl+C to exit)...");
+    loop {
+        let (procs, cpu_map) = engine.tick();
+
+        let mut list: Vec<_> = procs.iter().collect();
+        list.sort_by(|a, b| {
+            let a_cpu = cpu_map.get(a.0).copied().unwrap_or(0.0);
+            let b_cpu = cpu_map.get(b.0).copied().unwrap_or(0.0);
+            b_cpu.total_cmp(&a_cpu)
+        });
+
+        // Clear screen using ANSI terminal escape sequences
+        print!("\x1B[2J\x1B[1;1H");
+        println!("=== Pulse Top Processes ===");
+        println!(
+            "{:<8} {:<25} {:<10} {:<15}",
+            "PID", "NAME", "CPU %", "MEM (KB)"
+        );
+        println!("{}", "-".repeat(60));
+        for (&pid, proc) in list.into_iter().take(20) {
+            let cpu = cpu_map.get(&pid).copied().unwrap_or(0.0);
+            println!(
+                "{:<8} {:<25} {:<10.2} {:<15}",
+                pid, proc.name, cpu, proc.memory_kb
+            );
+        }
+        std::thread::sleep(Duration::from_millis(1000));
     }
 }

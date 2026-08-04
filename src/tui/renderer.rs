@@ -615,7 +615,7 @@ fn render_help_modal(frame: &mut Frame, area: Rect) {
                 Span::styled(" Sort CPU/Mem", Style::default().fg(TEXT_MUTED)),
             ])),
             Cell::from(Line::from(vec![
-                Span::styled("[k]", Style::default().fg(ACCENT_RUST)),
+                Span::styled("[x]", Style::default().fg(ACCENT_RUST)),
                 Span::styled(" Trigger Kill Dialog", Style::default().fg(TEXT_MUTED)),
             ])),
             Cell::from(Line::from(vec![

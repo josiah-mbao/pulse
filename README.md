@@ -85,6 +85,13 @@ Pulse is structured as a multi-crate Rust workspace:
 
 ## ⚡ Getting Started
 
+```bash
+# Download and run the latest release (Linux x86_64)
+curl -sSL https://github.com/josiah-mbao/pulse/releases/latest/download/pulse -o pulse
+chmod +x pulse
+sudo ./pulse
+```
+
 ### Prerequisites
 *   **Rust (Nightly)**: Required for building the `#![no_std]` eBPF program (`bpfel-unknown-none` target).
 *   **LLVM / Clang**: For compiled eBPF assets.
