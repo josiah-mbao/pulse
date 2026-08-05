@@ -133,3 +133,62 @@ pub enum ViewRow {
         indent_level: u8,
     },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    #[test]
+    fn test_event_sender_successful_send() {
+        let (tx, rx) = mpsc::sync_channel(10);
+        let sender = EventSender::new(tx);
+
+        let frame = TelemetryFrame {
+            processes: HashMap::new(),
+            cpu_map: HashMap::new(),
+            global_cpu_utilization: 0.0,
+            global_mem_utilization: 0.0,
+            network: NetworkStats::default(),
+            disk_sectors_read: 0,
+            disk_sectors_written: 0,
+        };
+
+        sender.send(SystemEvent::Tick(frame));
+        assert_eq!(sender.dropped_ticks(), 0);
+        assert_eq!(sender.dropped_traces(), 0);
+        assert!(rx.try_recv().is_ok());
+    }
+
+    #[test]
+    fn test_event_sender_dropped_traces_and_ticks() {
+        let (tx, _rx) = mpsc::sync_channel(1);
+        let sender = EventSender::new(tx);
+
+        let frame = TelemetryFrame {
+            processes: HashMap::new(),
+            cpu_map: HashMap::new(),
+            global_cpu_utilization: 0.0,
+            global_mem_utilization: 0.0,
+            network: NetworkStats::default(),
+            disk_sectors_read: 0,
+            disk_sectors_written: 0,
+        };
+
+        // Fill the 1-slot channel
+        sender.send(SystemEvent::Tick(frame.clone()));
+        assert_eq!(sender.dropped_ticks(), 0);
+
+        // Next sends will fail try_send and hit backpressure policy
+        sender.send(SystemEvent::Tick(frame));
+        assert_eq!(sender.dropped_ticks(), 1);
+
+        let trace_evt = pulse_common::TraceEvent {
+            pid: 100,
+            event_type: pulse_common::EVENT_EXEC,
+            comm: [0; 16],
+        };
+        sender.send(SystemEvent::Trace(trace_evt));
+        assert_eq!(sender.dropped_traces(), 1);
+    }
+}

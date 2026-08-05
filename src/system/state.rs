@@ -232,7 +232,222 @@ pub fn read_disk_io() -> Option<(u64, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::system::collector::RawProcess;
     use std::io::Cursor;
+
+    #[test]
+    fn test_build_state_basic() {
+        let mut prev = HashMap::new();
+        prev.insert(
+            1,
+            ProcessSnapshot {
+                ppid: 0,
+                name: "init".to_string(),
+                cpu_time: 10,
+                memory_kb: 100,
+            },
+        );
+
+        let curr_raw = vec![
+            RawProcess {
+                pid: 1,
+                ppid: 0,
+                name: "init".to_string(),
+                cpu_time: 20,
+                memory_kb: 100,
+            },
+            RawProcess {
+                pid: 2,
+                ppid: 1,
+                name: "bash".to_string(),
+                cpu_time: 50,
+                memory_kb: 200,
+            },
+        ];
+
+        let state = build_state(prev.clone(), curr_raw, 100);
+        assert_eq!(state.total_cpu_delta, 100);
+        assert_eq!(state.prev, prev);
+        assert_eq!(state.curr.len(), 2);
+        assert_eq!(state.curr.get(&1).unwrap().cpu_time, 20);
+        assert_eq!(state.curr.get(&2).unwrap().name, "bash");
+    }
+
+    #[test]
+    fn test_build_state_empty() {
+        let state = build_state(HashMap::new(), Vec::new(), 0);
+        assert_eq!(state.total_cpu_delta, 0);
+        assert!(state.prev.is_empty());
+        assert!(state.curr.is_empty());
+    }
+
+    #[test]
+    fn test_build_state_duplicate_pid_overwrites() {
+        let curr_raw = vec![
+            RawProcess {
+                pid: 10,
+                ppid: 1,
+                name: "old_proc".to_string(),
+                cpu_time: 10,
+                memory_kb: 100,
+            },
+            RawProcess {
+                pid: 10,
+                ppid: 1,
+                name: "new_proc".to_string(),
+                cpu_time: 30,
+                memory_kb: 300,
+            },
+        ];
+
+        let state = build_state(HashMap::new(), curr_raw, 50);
+        assert_eq!(state.curr.len(), 1);
+        assert_eq!(state.curr.get(&10).unwrap().name, "new_proc");
+        assert_eq!(state.curr.get(&10).unwrap().cpu_time, 30);
+    }
+
+    #[test]
+    fn test_compute_cpu_basic() {
+        let mut prev = HashMap::new();
+        prev.insert(
+            10,
+            ProcessSnapshot {
+                ppid: 1,
+                name: "proc1".to_string(),
+                cpu_time: 100,
+                memory_kb: 1000,
+            },
+        );
+        prev.insert(
+            20,
+            ProcessSnapshot {
+                ppid: 1,
+                name: "proc2".to_string(),
+                cpu_time: 200,
+                memory_kb: 2000,
+            },
+        );
+
+        let mut curr = HashMap::new();
+        curr.insert(
+            10,
+            ProcessSnapshot {
+                ppid: 1,
+                name: "proc1".to_string(),
+                cpu_time: 150, // delta = 50
+                memory_kb: 1000,
+            },
+        );
+        curr.insert(
+            20,
+            ProcessSnapshot {
+                ppid: 1,
+                name: "proc2".to_string(),
+                cpu_time: 200, // delta = 0 -> omitted
+                memory_kb: 2000,
+            },
+        );
+
+        let state = SystemState {
+            prev,
+            curr,
+            total_cpu_delta: 200, // percentage for proc1 = (50 / 200) * 100 = 25.0%
+        };
+
+        let cpu = compute_cpu(&state);
+        assert_eq!(cpu.len(), 1);
+        assert!((cpu.get(&10).unwrap() - 25.0).abs() < f32::EPSILON);
+        assert!(!cpu.contains_key(&20));
+    }
+
+    #[test]
+    fn test_compute_cpu_zero_total_delta() {
+        let mut prev = HashMap::new();
+        prev.insert(
+            10,
+            ProcessSnapshot {
+                ppid: 1,
+                name: "proc1".to_string(),
+                cpu_time: 100,
+                memory_kb: 1000,
+            },
+        );
+        let mut curr = HashMap::new();
+        curr.insert(
+            10,
+            ProcessSnapshot {
+                ppid: 1,
+                name: "proc1".to_string(),
+                cpu_time: 150,
+                memory_kb: 1000,
+            },
+        );
+
+        let state = SystemState {
+            prev,
+            curr,
+            total_cpu_delta: 0,
+        };
+
+        let cpu = compute_cpu(&state);
+        assert!(cpu.is_empty());
+    }
+
+    #[test]
+    fn test_compute_cpu_missing_in_prev() {
+        let mut curr = HashMap::new();
+        curr.insert(
+            30,
+            ProcessSnapshot {
+                ppid: 1,
+                name: "proc30".to_string(),
+                cpu_time: 50,
+                memory_kb: 500,
+            },
+        );
+
+        let state = SystemState {
+            prev: HashMap::new(),
+            curr,
+            total_cpu_delta: 100,
+        };
+
+        let cpu = compute_cpu(&state);
+        assert!(cpu.is_empty());
+    }
+
+    #[test]
+    fn test_compute_cpu_decreased_cpu_time() {
+        let mut prev = HashMap::new();
+        prev.insert(
+            10,
+            ProcessSnapshot {
+                ppid: 1,
+                name: "proc1".to_string(),
+                cpu_time: 100,
+                memory_kb: 1000,
+            },
+        );
+        let mut curr = HashMap::new();
+        curr.insert(
+            10,
+            ProcessSnapshot {
+                ppid: 1,
+                name: "proc1".to_string(),
+                cpu_time: 90, // decreased
+                memory_kb: 1000,
+            },
+        );
+
+        let state = SystemState {
+            prev,
+            curr,
+            total_cpu_delta: 100,
+        };
+
+        let cpu = compute_cpu(&state);
+        assert!(cpu.is_empty());
+    }
 
     #[test]
     fn test_parse_network_dev_logic() {
@@ -257,5 +472,25 @@ mod tests {
             .expect("wlan0 interface missing");
         assert_eq!(wlan0.rx_bytes, 500);
         assert_eq!(wlan0.tx_bytes, 600);
+    }
+
+    #[test]
+    fn test_parse_network_stats_empty_and_malformed() {
+        let empty_reader = Cursor::new("");
+        let stats = parse_network_stats(empty_reader);
+        assert!(stats.is_none_or(|s| s.interfaces.is_empty()));
+
+        let malformed = r#"Inter-|   Receive
+ interface |bytes
+eth0:123 0 0 0 0 0 0 0 456 0 0 0 0 0 0 0
+invalid_line_without_colon
+"#;
+        let stats = parse_network_stats(Cursor::new(malformed)).expect("Should parse valid lines");
+        let eth0 = stats
+            .interfaces
+            .get("eth0")
+            .expect("eth0 interface missing");
+        assert_eq!(eth0.rx_bytes, 123);
+        assert_eq!(eth0.tx_bytes, 456);
     }
 }

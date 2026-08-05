@@ -60,3 +60,149 @@ pub fn compute_cpu_usage(prev: &SystemSnapshot, curr: &SystemSnapshot) -> HashMa
 
     usage
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_cpu_usage_normal() {
+        let mut prev_procs = HashMap::new();
+        prev_procs.insert(100, 1000);
+        prev_procs.insert(200, 500);
+
+        let mut curr_procs = HashMap::new();
+        curr_procs.insert(100, 1050); // delta = 50
+        curr_procs.insert(200, 520); // delta = 20
+
+        let prev = SystemSnapshot {
+            total_cpu: 10000,
+            processes: prev_procs,
+        };
+        let curr = SystemSnapshot {
+            total_cpu: 10100, // total_delta = 100
+            processes: curr_procs,
+        };
+
+        let usage = compute_cpu_usage(&prev, &curr);
+        assert_eq!(usage.len(), 2);
+        assert!((usage.get(&100).unwrap() - 50.0).abs() < f32::EPSILON);
+        assert!((usage.get(&200).unwrap() - 20.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_compute_cpu_usage_zero_total_delta() {
+        let mut procs = HashMap::new();
+        procs.insert(100, 1000);
+
+        let prev = SystemSnapshot {
+            total_cpu: 10000,
+            processes: procs.clone(),
+        };
+        let curr = SystemSnapshot {
+            total_cpu: 10000,
+            processes: procs,
+        };
+
+        let usage = compute_cpu_usage(&prev, &curr);
+        assert!(usage.is_empty());
+    }
+
+    #[test]
+    fn test_compute_cpu_usage_total_cpu_wrapped() {
+        let prev = SystemSnapshot {
+            total_cpu: 10000,
+            processes: HashMap::new(),
+        };
+        let curr = SystemSnapshot {
+            total_cpu: 9000, // wrapped or smaller total_cpu
+            processes: HashMap::new(),
+        };
+
+        let usage = compute_cpu_usage(&prev, &curr);
+        assert!(usage.is_empty());
+    }
+
+    #[test]
+    fn test_compute_cpu_usage_process_disappeared() {
+        let mut prev_procs = HashMap::new();
+        prev_procs.insert(100, 1000);
+        prev_procs.insert(200, 500);
+
+        let mut curr_procs = HashMap::new();
+        curr_procs.insert(100, 1050);
+
+        let prev = SystemSnapshot {
+            total_cpu: 10000,
+            processes: prev_procs,
+        };
+        let curr = SystemSnapshot {
+            total_cpu: 10100,
+            processes: curr_procs,
+        };
+
+        let usage = compute_cpu_usage(&prev, &curr);
+        assert_eq!(usage.len(), 1);
+        assert!(usage.contains_key(&100));
+        assert!(!usage.contains_key(&200));
+    }
+
+    #[test]
+    fn test_compute_cpu_usage_new_process() {
+        let mut prev_procs = HashMap::new();
+        prev_procs.insert(100, 1000);
+
+        let mut curr_procs = HashMap::new();
+        curr_procs.insert(100, 1050);
+        curr_procs.insert(300, 200);
+
+        let prev = SystemSnapshot {
+            total_cpu: 10000,
+            processes: prev_procs,
+        };
+        let curr = SystemSnapshot {
+            total_cpu: 10100,
+            processes: curr_procs,
+        };
+
+        let usage = compute_cpu_usage(&prev, &curr);
+        assert_eq!(usage.len(), 1);
+        assert!(!usage.contains_key(&300));
+    }
+
+    #[test]
+    fn test_compute_cpu_usage_process_time_decreased() {
+        let mut prev_procs = HashMap::new();
+        prev_procs.insert(100, 1000);
+
+        let mut curr_procs = HashMap::new();
+        curr_procs.insert(100, 900); // decreased cpu_time
+
+        let prev = SystemSnapshot {
+            total_cpu: 10000,
+            processes: prev_procs,
+        };
+        let curr = SystemSnapshot {
+            total_cpu: 10100,
+            processes: curr_procs,
+        };
+
+        let usage = compute_cpu_usage(&prev, &curr);
+        assert!((usage.get(&100).unwrap() - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_compute_cpu_usage_empty_snapshots() {
+        let prev = SystemSnapshot {
+            total_cpu: 0,
+            processes: HashMap::new(),
+        };
+        let curr = SystemSnapshot {
+            total_cpu: 100,
+            processes: HashMap::new(),
+        };
+
+        let usage = compute_cpu_usage(&prev, &curr);
+        assert!(usage.is_empty());
+    }
+}

@@ -211,4 +211,103 @@ mod tests {
         assert_eq!(pipeline.len(), 1);
         assert!(matches!(pipeline[0], ViewRow::Process { pid: 2, .. }));
     }
+
+    #[test]
+    fn test_flat_sort_memory() {
+        let mut snapshots = HashMap::new();
+        snapshots.insert(1, mock_snapshot(1, 50.0, 100, None)); // high CPU, low RAM
+        snapshots.insert(2, mock_snapshot(2, 10.0, 500, None)); // low CPU, high RAM
+        snapshots.insert(3, mock_snapshot(3, 20.0, 300, None)); // mid RAM
+
+        let pipeline = project_view(&snapshots, &ViewMode::Flat, &SortMode::Memory, None);
+
+        if let (
+            ViewRow::Process { pid: p1, .. },
+            ViewRow::Process { pid: p2, .. },
+            ViewRow::Process { pid: p3, .. },
+        ) = (&pipeline[0], &pipeline[1], &pipeline[2])
+        {
+            assert_eq!(*p1, 2);
+            assert_eq!(*p2, 3);
+            assert_eq!(*p3, 1);
+        } else {
+            panic!("Unexpected row types");
+        }
+    }
+
+    #[test]
+    fn test_container_sort_memory() {
+        let mut snapshots = HashMap::new();
+        snapshots.insert(1, mock_snapshot(1, 10.0, 100, Some("c1"))); // c1 total mem: 300
+        snapshots.insert(2, mock_snapshot(2, 50.0, 200, Some("c1")));
+        snapshots.insert(3, mock_snapshot(3, 25.0, 1000, Some("c2"))); // c2 total mem: 1000
+
+        let pipeline = project_view(&snapshots, &ViewMode::Container, &SortMode::Memory, None);
+
+        assert!(matches!(
+            pipeline[0],
+            ViewRow::ContainerHeader {
+                ref id,
+                aggregated_mem_kb,
+                ..
+            } if id == "c2" && aggregated_mem_kb == 1000
+        ));
+        assert!(matches!(
+            pipeline[1],
+            ViewRow::Process {
+                pid: 3,
+                indent_level: 1
+            }
+        ));
+
+        assert!(matches!(
+            pipeline[2],
+            ViewRow::ContainerHeader {
+                ref id,
+                aggregated_mem_kb,
+                ..
+            } if id == "c1" && aggregated_mem_kb == 300
+        ));
+        // Within c1, proc 2 (200 KB) comes before proc 1 (100 KB)
+        assert!(matches!(
+            pipeline[3],
+            ViewRow::Process {
+                pid: 2,
+                indent_level: 1
+            }
+        ));
+        assert!(matches!(
+            pipeline[4],
+            ViewRow::Process {
+                pid: 1,
+                indent_level: 1
+            }
+        ));
+    }
+
+    #[test]
+    fn test_project_view_empty_snapshots() {
+        let snapshots = HashMap::new();
+
+        let flat_pipeline = project_view(&snapshots, &ViewMode::Flat, &SortMode::Cpu, None);
+        assert!(flat_pipeline.is_empty());
+
+        let container_pipeline =
+            project_view(&snapshots, &ViewMode::Container, &SortMode::Cpu, None);
+        assert!(container_pipeline.is_empty());
+    }
+
+    #[test]
+    fn test_project_view_filter_no_match() {
+        let mut snapshots = HashMap::new();
+        snapshots.insert(1, mock_snapshot(1, 10.0, 100, None));
+
+        let pipeline = project_view(
+            &snapshots,
+            &ViewMode::Flat,
+            &SortMode::Cpu,
+            Some("nonexistent_filter_query"),
+        );
+        assert!(pipeline.is_empty());
+    }
 }
