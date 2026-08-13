@@ -1,10 +1,8 @@
-mod tui;
-
 use clap::Parser;
 use pulse::cli::commands::Commands;
 use pulse::cli::status::run_status;
 use pulse::cli::top::run_top;
-use tui::app::run_app;
+use pulse::tui::app::run_app;
 
 #[derive(Parser)]
 #[command(name = "pulse", about = "Linux system observability TUI", version)]

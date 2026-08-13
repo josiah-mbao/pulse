@@ -1,8 +1,8 @@
+use crate::system::memory::{memory_usage_percent, read_memory};
+use crate::system::model::{ProcessSnapshot, ViewRow};
+use crate::system::process::get_extra_info;
+use crate::system::uptime::read_uptime;
 use crate::tui::app::{AppState, InputMode, Tab, TraceEventKind};
-use pulse::system::memory::{memory_usage_percent, read_memory};
-use pulse::system::model::{ProcessSnapshot, ViewRow};
-use pulse::system::process::get_extra_info;
-use pulse::system::uptime::read_uptime;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},

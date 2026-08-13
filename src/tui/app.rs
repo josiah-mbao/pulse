@@ -17,14 +17,14 @@ use std::{
 };
 use tachyonfx::{EffectManager, Interpolation, fx};
 
-use crate::tui::input::{InputEvent, read_input};
-use crate::tui::projection::project_view;
-use crate::tui::renderer::{BG_CANVAS, render};
-use pulse::system::engine::Engine;
-use pulse::system::model::{
+use crate::system::engine::Engine;
+use crate::system::model::{
     NetworkStats, ProcessSnapshot as TuiProcessSnapshot, SortMode, SystemEvent, TelemetryFrame,
     ViewMode, ViewRow,
 };
+use crate::tui::input::{InputEvent, read_input};
+use crate::tui::projection::project_view;
+use crate::tui::renderer::{BG_CANVAS, render};
 use pulse_common::TraceEvent;
 
 const MAX_HISTORY_POINTS: usize = 200;
@@ -107,6 +107,12 @@ pub struct AppState {
     pub current_speeds: HashMap<String, (f32, f32)>,
     pub sorted_interfaces: Vec<String>,
     pub trace_log: VecDeque<TraceEventView>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AppState {

@@ -1,4 +1,4 @@
-use pulse::system::model::{ProcessSnapshot, SortMode, ViewMode, ViewRow};
+use crate::system::model::{ProcessSnapshot, SortMode, ViewMode, ViewRow};
 use std::collections::HashMap;
 
 /// Projects process snapshots into a presentation-ready pipeline of view rows.
