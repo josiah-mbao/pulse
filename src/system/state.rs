@@ -73,13 +73,7 @@ pub fn compute_cpu(state: &SystemState) -> HashMap<u32, f32> {
     usage
 }
 
-/// Parses aggregate CPU statistics from /proc/stat
-pub fn read_global_jiffies() -> Option<CpuJiffies> {
-    let file = File::open("/proc/stat").ok()?;
-    let mut reader = BufReader::new(file);
-    let mut line = String::new();
-    reader.read_line(&mut line).ok()?;
-
+pub fn parse_global_jiffies(line: &str) -> Option<CpuJiffies> {
     if line.starts_with("cpu ") {
         let parts: Vec<u64> = line
             .split_whitespace()
@@ -95,6 +89,16 @@ pub fn read_global_jiffies() -> Option<CpuJiffies> {
         }
     }
     None
+}
+
+/// Parses aggregate CPU statistics from /proc/stat
+pub fn read_global_jiffies() -> Option<CpuJiffies> {
+    let file = File::open("/proc/stat").ok()?;
+    let mut reader = BufReader::new(file);
+    let mut line = String::new();
+    reader.read_line(&mut line).ok()?;
+
+    parse_global_jiffies(&line)
 }
 
 /// Calculates immediate global memory allocation percentage
@@ -187,10 +191,7 @@ fn parse_network_stats<R: BufRead>(mut reader: R) -> Option<NetworkStats> {
     Some(stats)
 }
 
-/// Aggregates sectors read/written from /proc/diskstats across physical drives
-pub fn read_disk_io() -> Option<(u64, u64)> {
-    let file = File::open("/proc/diskstats").ok()?;
-    let mut reader = BufReader::new(file);
+pub fn parse_diskstats<R: BufRead>(mut reader: R) -> Option<(u64, u64)> {
     let mut line = String::with_capacity(256);
     let mut total_read = 0;
     let mut total_written = 0;
@@ -227,6 +228,13 @@ pub fn read_disk_io() -> Option<(u64, u64)> {
     }
 
     Some((total_read, total_written))
+}
+
+/// Aggregates sectors read/written from /proc/diskstats across physical drives
+pub fn read_disk_io() -> Option<(u64, u64)> {
+    let file = File::open("/proc/diskstats").ok()?;
+    let reader = BufReader::new(file);
+    parse_diskstats(reader)
 }
 
 #[cfg(test)]
@@ -492,5 +500,35 @@ invalid_line_without_colon
             .expect("eth0 interface missing");
         assert_eq!(eth0.rx_bytes, 123);
         assert_eq!(eth0.tx_bytes, 456);
+    }
+
+    #[test]
+    fn test_parse_global_jiffies_valid() {
+        let line = "cpu  1000 100 300 5000 200 50 10 0 0 0";
+        let jiffies = parse_global_jiffies(line).expect("Should parse cpu line");
+        assert_eq!(jiffies.total, 6660);
+        assert_eq!(jiffies.idle, 5200); // 5000 + 200
+    }
+
+    #[test]
+    fn test_parse_global_jiffies_malformed() {
+        assert!(parse_global_jiffies("cpu0 100 200").is_none());
+        assert!(parse_global_jiffies("not_cpu 100 200").is_none());
+    }
+
+    #[test]
+    fn test_parse_diskstats_valid() {
+        let mock_diskstats = r#"   8       0 sda 1000 0 8000 100 2000 0 16000 200 0 300 300
+   7       0 loop0 500 0 4000 50 0 0 0 0 0 0 0
+ 259       0 nvme0n1 3000 0 24000 150 4000 0 32000 250 0 400 400
+"#;
+        let (read_sectors, write_sectors) =
+            parse_diskstats(Cursor::new(mock_diskstats)).expect("Should parse diskstats");
+        // sda: read 8000, write 16000
+        // loop0: skipped
+        // nvme0n1: read 24000, write 32000
+        // total read = 32000, total write = 48000
+        assert_eq!(read_sectors, 32000);
+        assert_eq!(write_sectors, 48000);
     }
 }

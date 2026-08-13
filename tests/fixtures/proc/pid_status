@@ -1,0 +1,32 @@
+Name:	pulse-worker
+State:	R (running)
+Tgid:	54321
+Ngid:	0
+Pid:	54321
+PPid:	1
+TracerPid:	0
+Uid:	1000	1000	1000	1000
+Gid:	1000	1000	1000	1000
+FDSize:	256
+Groups:	10 1000
+NStid:	54321
+NSpid:	54321
+NSpgid:	54321
+NSsid:	54321
+VmPeak:	   30000 kB
+VmSize:	   25000 kB
+VmLck:	       0 kB
+VmPin:	       0 kB
+VmHWM:	    8192 kB
+VmRSS:	    8192 kB
+RssAnon:	    4096 kB
+RssFile:	    4096 kB
+RssShmem:	       0 kB
+VmData:	    1024 kB
+VmStk:	     136 kB
+VmExe:	    2048 kB
+VmLib:	    4096 kB
+VmPTE:	      64 kB
+VmPMD:	      12 kB
+VmSwap:	       0 kB
+Threads:	8
