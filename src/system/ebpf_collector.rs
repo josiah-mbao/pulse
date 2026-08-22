@@ -10,7 +10,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub fn load_ebpf() -> anyhow::Result<Ebpf> {
-    static EBPF_BYTES: &[u8] = include_bytes!("../../target/bpfel-unknown-none/release/pulse-ebpf");
+    static EBPF_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/pulse-ebpf"));
+
+    if EBPF_BYTES.is_empty() {
+        anyhow::bail!("eBPF bytecode was not built at compile time (pulse-ebpf object missing)");
+    }
 
     match Ebpf::load(EBPF_BYTES) {
         Ok(bpf) => Ok(bpf),
