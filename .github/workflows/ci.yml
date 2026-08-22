@@ -41,7 +41,7 @@ jobs:
           components: clippy
       - uses: swatinem/rust-cache@v2
       - name: Cargo clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
   test:
     name: Test
@@ -51,4 +51,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
       - name: Run tests
-        run: cargo test
+        run: cargo test --workspace
+      - name: Run bench check
+        run: cargo bench -- --test

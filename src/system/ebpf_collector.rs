@@ -10,13 +10,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub fn load_ebpf() -> anyhow::Result<Ebpf> {
-    // eprintln!("DEBUG: load_ebpf() entered");
-    let res = Ebpf::load_file("target/bpfel-unknown-none/release/pulse-ebpf")
-        .context("Failed to load eBPF object");
-    if res.is_ok() {
-        // eprintln!("DEBUG: load_ebpf() returned successfully");
+    static EBPF_BYTES: &[u8] = include_bytes!("../../target/bpfel-unknown-none/release/pulse-ebpf");
+
+    match Ebpf::load(EBPF_BYTES) {
+        Ok(bpf) => Ok(bpf),
+        Err(e) => Ebpf::load_file("target/bpfel-unknown-none/release/pulse-ebpf").context(format!(
+            "Failed to load embedded eBPF object ({:?}) and disk fallback failed",
+            e
+        )),
     }
-    res
 }
 
 pub fn run_trace_task(

@@ -13,15 +13,11 @@
   Combining low-overhead <code>/proc</code> telemetry with real-time eBPF kernel lifecycle tracing.
 </p>
 
-<!-- Uncomment these as you add them -->
-<!--
 <p align="center">
-  <img src="https://img.shields.io/github/actions/workflow/status/josiah-mbao/pulse/ci.yml?style=flat-square" />
-  <img src="https://img.shields.io/github/license/josiah-mbao/pulse?style=flat-square" />
-  <img src="https://img.shields.io/github/stars/josiah-mbao/pulse?style=flat-square" />
-  <img src="https://img.shields.io/badge/Linux-eBPF-orange?style=flat-square" />
+  <img src="https://img.shields.io/github/actions/workflow/status/josiah-mbao/pulse/ci.yml?style=flat-square" alt="CI Status" />
+  <img src="https://img.shields.io/github/license/josiah-mbao/pulse?style=flat-square" alt="License" />
+  <img src="https://img.shields.io/badge/Linux-eBPF-orange?style=flat-square" alt="Linux eBPF" />
 </p>
--->
 
 ---
 
@@ -142,7 +138,28 @@ Pulse is organized as a multi-crate Rust workspace.
 
 # ⚡ Getting Started
 
-## Prerequisites
+## Quick Install (Binary)
+
+Install the prebuilt self-contained `pulse` binary via one-line installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/josiah-mbao/pulse/main/scripts/install.sh | sh
+```
+
+---
+
+## 🔒 Permissions & Capabilities
+
+| Execution Mode | Command | Privileges | Features Available |
+|---|---|---|---|
+| **Unprivileged Mode** | `pulse` | Standard User | Process Fleet, EKG Telemetry, Sentinel Network, Filtering, Sorting |
+| **eBPF Kernel Mode** | `sudo pulse` | `root` or `CAP_BPF` + `CAP_PERFMON` | All `/proc` features + Real-time eBPF `sched_process_exec`/`exit` Trace Lens |
+
+---
+
+## Building From Source
+
+### Prerequisites
 
 - Rust (Nightly)
 - LLVM / Clang
