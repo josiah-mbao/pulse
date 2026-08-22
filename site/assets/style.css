@@ -2,10 +2,10 @@
 
 :root {
   --bg-zinc: #09090b;
-  --accent-exec: #10b981;
-  --accent-exit: #f43f5e;
-  --accent-sentinel: #3b82f6;
-  --accent-ekg: #f59e0b;
+  --accent-exec: #f97316; /* Rust Orange */
+  --accent-exit: #ef4444; /* Red */
+  --accent-sentinel: #38bdf8; /* Sky Blue */
+  --accent-ekg: #f59e0b; /* Amber */
 }
 
 body {
@@ -28,16 +28,16 @@ body {
 }
 
 .glass-card:hover {
-  border-color: rgba(63, 63, 70, 0.9);
+  border-color: rgba(249, 115, 22, 0.4);
 }
 
 /* Glow Elements */
-.glow-emerald {
-  box-shadow: 0 0 40px -10px rgba(16, 185, 129, 0.25);
+.glow-orange {
+  box-shadow: 0 0 45px -10px rgba(249, 115, 22, 0.3);
 }
 
 .glow-blue {
-  box-shadow: 0 0 40px -10px rgba(59, 130, 246, 0.25);
+  box-shadow: 0 0 40px -10px rgba(56, 189, 248, 0.25);
 }
 
 /* Terminal Scrollbar & Blinking Cursor */
@@ -84,7 +84,7 @@ body {
 .ambient-glow {
   position: absolute;
   border-radius: 50%;
-  filter: blur(120px);
+  filter: blur(130px);
   pointer-events: none;
   z-index: 0;
 }

@@ -19,9 +19,10 @@
               900: '#121217',
               800: '#27272a',
             },
-            emerald: {
-              400: '#34d399',
-              500: '#10b981',
+            orange: {
+              400: '#fb923c',
+              500: '#f97316',
+              600: '#ea580c',
             },
             rose: {
               400: '#fb7185',
@@ -43,20 +44,20 @@
   <!-- Custom Styles -->
   <link rel="stylesheet" href="assets/style.css" />
 </head>
-<body class="bg-zinc-950 text-zinc-100 antialiased relative selection:bg-emerald-500/30 selection:text-emerald-300">
+<body class="bg-zinc-950 text-zinc-100 antialiased relative selection:bg-orange-500/30 selection:text-orange-300">
 
   <!-- Ambient Background Glows -->
-  <div class="ambient-glow bg-emerald-500/10 w-[500px] h-[500px] -top-32 -left-32"></div>
+  <div class="ambient-glow bg-orange-500/10 w-[500px] h-[500px] -top-32 -left-32"></div>
   <div class="ambient-glow bg-blue-500/10 w-[600px] h-[600px] top-96 -right-48"></div>
 
   <!-- Navigation -->
   <header class="sticky top-0 z-50 backdrop-blur-xl bg-zinc-950/80 border-b border-zinc-800/80">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
       <a href="#" class="flex items-center space-x-3 group">
-        <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform">
+        <div class="w-8 h-8 rounded-lg bg-orange-500/10 border border-orange-500/30 flex items-center justify-center text-orange-400 group-hover:scale-105 transition-transform">
           <i data-lucide="activity" class="w-5 h-5"></i>
         </div>
-        <span class="font-bold text-lg tracking-tight text-white">Pulse <span class="text-xs font-mono text-emerald-400 font-normal px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full">v0.7.0</span></span>
+        <span class="font-bold text-lg tracking-tight text-white">Pulse <span class="text-xs font-mono text-orange-400 font-normal px-2 py-0.5 bg-orange-500/10 border border-orange-500/20 rounded-full">v0.7.0</span></span>
       </a>
 
       <nav class="hidden md:flex items-center space-x-8 text-sm text-zinc-400 font-medium">
@@ -80,25 +81,25 @@
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
       
       <!-- Release Badge -->
-      <div class="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono mb-8">
-        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+      <div class="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-mono mb-8">
+        <span class="w-2 h-2 rounded-full bg-orange-400 animate-pulse"></span>
         <span>v0.7.0 Released — Open Source Linux Observability</span>
       </div>
 
       <!-- Main Headline -->
       <h1 class="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-white max-w-4xl mx-auto leading-tight mb-6">
-        Observe Linux from the <span class="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-blue-400">Kernel Up</span>.
+        Observe Linux from the <span class="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-amber-300 to-rose-400">Kernel Up</span>.
       </h1>
 
       <!-- Subheadline -->
       <p class="text-base sm:text-xl text-zinc-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-        Combining ultra-low overhead <code class="font-mono text-zinc-200 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">/proc</code> system telemetry with real-time eBPF process lifecycle tracing in a high-performance terminal UI.
+        Combining ultra-low overhead <code class="font-mono text-zinc-200 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">/proc</code> system telemetry with real-time eBPF process lifecycle tracing in a high-performance terminal UI written in Rust.
       </p>
 
       <!-- CTA Buttons & One-Click Install -->
       <div class="flex flex-col sm:flex-row items-center justify-center gap-4 max-w-xl mx-auto mb-16">
         <div class="w-full sm:w-auto flex items-center justify-between space-x-3 px-4 py-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-200 font-mono text-xs shadow-2xl w-full">
-          <span class="text-emerald-400 font-bold">$</span>
+          <span class="text-orange-400 font-bold">$</span>
           <span id="hero-install-code" class="truncate">curl -fsSL https://raw.githubusercontent.com/josiah-mbao/pulse/main/scripts/install.sh | sh</span>
           <button class="copy-btn p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors flex items-center space-x-1" data-copy-target="hero-install-code" aria-label="Copy install command">
             <i data-lucide="copy" class="w-4 h-4"></i>
@@ -107,17 +108,17 @@
       </div>
 
       <!-- Hero Interactive Terminal Preview -->
-      <div class="max-w-4xl mx-auto rounded-xl glass-card border border-zinc-800 shadow-2xl overflow-hidden text-left glow-emerald">
+      <div class="max-w-4xl mx-auto rounded-xl glass-card border border-zinc-800 shadow-2xl overflow-hidden text-left glow-orange">
         <div class="bg-zinc-900/90 px-4 py-3 border-b border-zinc-800/80 flex items-center justify-between">
           <div class="flex items-center space-x-2">
             <span class="w-3 h-3 rounded-full bg-rose-500/80 inline-block"></span>
             <span class="w-3 h-3 rounded-full bg-amber-500/80 inline-block"></span>
-            <span class="w-3 h-3 rounded-full bg-emerald-500/80 inline-block"></span>
+            <span class="w-3 h-3 rounded-full bg-orange-500/80 inline-block"></span>
             <span class="ml-2 font-mono text-xs text-zinc-400">pulse — [Tab 4: Trace Lens]</span>
           </div>
           <div class="flex items-center space-x-3 text-xs font-mono text-zinc-500">
             <span>eBPF: ACTIVE</span>
-            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+            <span class="w-2 h-2 rounded-full bg-orange-400 animate-ping"></span>
           </div>
         </div>
 
@@ -133,7 +134,7 @@
   <section id="features" class="py-20 bg-zinc-950/50 border-t border-zinc-900 relative">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="text-center max-w-3xl mx-auto mb-16">
-        <h2 class="text-xs font-mono uppercase tracking-widest text-emerald-400 mb-3">Observability Lenses</h2>
+        <h2 class="text-xs font-mono uppercase tracking-widest text-orange-400 mb-3">Observability Lenses</h2>
         <p class="text-3xl sm:text-4xl font-bold text-white tracking-tight">Four specialized lenses for complete Linux visibility.</p>
       </div>
 
@@ -141,19 +142,19 @@
         
         <!-- Lens 1: Trace -->
         <div class="glass-card p-8 rounded-2xl relative overflow-hidden group">
-          <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-6 group-hover:scale-110 transition-transform">
+          <div class="w-12 h-12 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-center justify-center text-orange-400 mb-6 group-hover:scale-110 transition-transform">
             <i data-lucide="cpu" class="w-6 h-6"></i>
           </div>
           <h3 class="text-xl font-bold text-white mb-3 flex items-center space-x-2">
             <span>Trace Lens</span>
-            <span class="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">eBPF</span>
+            <span class="text-xs font-mono text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded border border-orange-500/20">eBPF</span>
           </h3>
           <p class="text-zinc-400 text-sm leading-relaxed mb-6">
             Observe process births and deaths directly from the Linux kernel in real-time. Captures <code class="font-mono text-zinc-200">sched_process_exec</code> and <code class="font-mono text-zinc-200">sched_process_exit</code> events via Aya eBPF tracepoints without missing rapid short-lived tasks.
           </p>
           <ul class="space-y-2 text-xs font-mono text-zinc-300">
-            <li class="flex items-center space-x-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i><span>Zero-allocation lock-free ring buffer</span></li>
-            <li class="flex items-center space-x-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i><span>Capped 500-event history window</span></li>
+            <li class="flex items-center space-x-2"><i data-lucide="check" class="w-4 h-4 text-orange-400"></i><span>Zero-allocation lock-free ring buffer</span></li>
+            <li class="flex items-center space-x-2"><i data-lucide="check" class="w-4 h-4 text-orange-400"></i><span>Capped 500-event history window</span></li>
           </ul>
         </div>
 
@@ -219,7 +220,7 @@
   <section id="architecture" class="py-20 relative">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="text-center max-w-3xl mx-auto mb-16">
-        <h2 class="text-xs font-mono uppercase tracking-widest text-emerald-400 mb-3">Under The Hood</h2>
+        <h2 class="text-xs font-mono uppercase tracking-widest text-orange-400 mb-3">Under The Hood</h2>
         <p class="text-3xl sm:text-4xl font-bold text-white tracking-tight">Multi-threaded architecture designed for speed.</p>
       </div>
 
@@ -227,7 +228,7 @@
       <div class="glass-card p-8 rounded-2xl mb-16 text-center overflow-x-auto">
         <div class="inline-flex flex-col md:flex-row items-center justify-center gap-4 text-xs font-mono min-w-[600px]">
           
-          <div class="p-4 rounded-xl bg-zinc-900 border border-emerald-500/30 text-emerald-400">
+          <div class="p-4 rounded-xl bg-zinc-900 border border-orange-500/30 text-orange-400">
             <div class="font-bold mb-1">Linux Kernel</div>
             <div class="text-zinc-400 text-[10px]">sched_process_exec / exit</div>
           </div>
@@ -275,13 +276,13 @@
             <tbody class="divide-y divide-zinc-800/60 text-zinc-300">
               <tr>
                 <td class="p-4 font-bold text-blue-400">Unprivileged Mode</td>
-                <td class="p-4 text-emerald-400">pulse</td>
+                <td class="p-4 text-orange-400">pulse</td>
                 <td class="p-4 text-zinc-400">Standard User</td>
                 <td class="p-4 text-zinc-300">Fleet Process List, EKG Telemetry, Sentinel Network, Filtering & Signals</td>
               </tr>
               <tr>
-                <td class="p-4 font-bold text-emerald-400">eBPF Kernel Mode</td>
-                <td class="p-4 text-emerald-400">sudo pulse</td>
+                <td class="p-4 font-bold text-orange-400">eBPF Kernel Mode</td>
+                <td class="p-4 text-orange-400">sudo pulse</td>
                 <td class="p-4 text-zinc-400">root or CAP_BPF + CAP_PERFMON</td>
                 <td class="p-4 text-zinc-300">All /proc features + Real-time eBPF Trace Lens event stream</td>
               </tr>
@@ -297,7 +298,7 @@
   <section id="docs" class="py-20 bg-zinc-950/50 border-t border-zinc-900 relative">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="text-center max-w-3xl mx-auto mb-16">
-        <h2 class="text-xs font-mono uppercase tracking-widest text-emerald-400 mb-3">Documentation</h2>
+        <h2 class="text-xs font-mono uppercase tracking-widest text-orange-400 mb-3">Documentation</h2>
         <p class="text-3xl sm:text-4xl font-bold text-white tracking-tight">Quick Installation & Reference Guide.</p>
       </div>
 
@@ -306,7 +307,7 @@
         <!-- Installation Tabs (8 Cols) -->
         <div class="lg:col-span-7 glass-card p-6 rounded-2xl">
           <div class="flex space-x-2 border-b border-zinc-800 pb-4 mb-6">
-            <button class="tab-btn px-4 py-2 text-xs font-mono rounded-lg border border-emerald-500 text-emerald-400 bg-zinc-800/50 transition-all" data-tab="tab-binary">
+            <button class="tab-btn px-4 py-2 text-xs font-mono rounded-lg border border-orange-500 text-orange-400 bg-zinc-800/50 transition-all" data-tab="tab-binary">
               Quick Binary Install
             </button>
             <button class="tab-btn px-4 py-2 text-xs font-mono rounded-lg border border-transparent text-zinc-400 hover:text-zinc-200 transition-all" data-tab="tab-cargo">
@@ -320,7 +321,7 @@
           <!-- Tab Content 1: Binary -->
           <div id="tab-binary" class="tab-content active space-y-4">
             <p class="text-xs text-zinc-400">Install the prebuilt self-contained binary via one-line POSIX installer script:</p>
-            <div class="relative bg-zinc-950 p-4 rounded-xl border border-zinc-800 font-mono text-xs text-emerald-300">
+            <div class="relative bg-zinc-950 p-4 rounded-xl border border-zinc-800 font-mono text-xs text-orange-300">
               <span id="doc-binary-cmd">curl -fsSL https://raw.githubusercontent.com/josiah-mbao/pulse/main/scripts/install.sh | sh</span>
               <button class="copy-btn absolute top-3 right-3 p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors" data-copy-target="doc-binary-cmd">
                 <i data-lucide="copy" class="w-4 h-4"></i>
@@ -332,7 +333,7 @@
           <!-- Tab Content 2: Cargo -->
           <div id="tab-cargo" class="tab-content space-y-4">
             <p class="text-xs text-zinc-400">Install directly from repository using Cargo:</p>
-            <div class="relative bg-zinc-950 p-4 rounded-xl border border-zinc-800 font-mono text-xs text-emerald-300">
+            <div class="relative bg-zinc-950 p-4 rounded-xl border border-zinc-800 font-mono text-xs text-orange-300">
               <span id="doc-cargo-cmd">cargo install --git https://github.com/josiah-mbao/pulse.git</span>
               <button class="copy-btn absolute top-3 right-3 p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors" data-copy-target="doc-cargo-cmd">
                 <i data-lucide="copy" class="w-4 h-4"></i>
@@ -344,10 +345,10 @@
           <div id="tab-source" class="tab-content space-y-4">
             <p class="text-xs text-zinc-400">Clone repository and compile eBPF bytecode using xtask:</p>
             <div class="bg-zinc-950 p-4 rounded-xl border border-zinc-800 font-mono text-xs text-zinc-300 space-y-2">
-              <div><span class="text-emerald-400">$</span> git clone https://github.com/josiah-mbao/pulse.git</div>
-              <div><span class="text-emerald-400">$</span> cd pulse</div>
-              <div><span class="text-emerald-400">$</span> cargo run --package xtask -- build-ebpf</div>
-              <div><span class="text-emerald-400">$</span> cargo build --release</div>
+              <div><span class="text-orange-400">$</span> git clone https://github.com/josiah-mbao/pulse.git</div>
+              <div><span class="text-orange-400">$</span> cd pulse</div>
+              <div><span class="text-orange-400">$</span> cargo run --package xtask -- build-ebpf</div>
+              <div><span class="text-orange-400">$</span> cargo build --release</div>
             </div>
           </div>
 
@@ -356,34 +357,34 @@
         <!-- Shortcuts Cheat Sheet (5 Cols) -->
         <div id="shortcuts" class="lg:col-span-5 glass-card p-6 rounded-2xl">
           <h3 class="text-base font-bold text-white mb-4 flex items-center space-x-2">
-            <i data-lucide="keyboard" class="w-5 h-5 text-emerald-400"></i>
+            <i data-lucide="keyboard" class="w-5 h-5 text-orange-400"></i>
             <span>In-TUI Keyboard Reference</span>
           </h3>
 
           <div class="grid grid-cols-2 gap-2 font-mono text-xs">
             <div class="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-800/80 flex items-center justify-between">
               <span class="text-zinc-400">Switch Lens</span>
-              <span class="text-emerald-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">1 - 4</span>
+              <span class="text-orange-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">1 - 4</span>
             </div>
             <div class="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-800/80 flex items-center justify-between">
               <span class="text-zinc-400">Filter Search</span>
-              <span class="text-emerald-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">/</span>
+              <span class="text-orange-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">/</span>
             </div>
             <div class="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-800/80 flex items-center justify-between">
               <span class="text-zinc-400">Cycle Sort</span>
-              <span class="text-emerald-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">Tab</span>
+              <span class="text-orange-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">Tab</span>
             </div>
             <div class="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-800/80 flex items-center justify-between">
               <span class="text-zinc-400">Group View</span>
-              <span class="text-emerald-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">g</span>
+              <span class="text-orange-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">g</span>
             </div>
             <div class="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-800/80 flex items-center justify-between">
               <span class="text-zinc-400">Pause Updates</span>
-              <span class="text-emerald-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">p</span>
+              <span class="text-orange-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">p</span>
             </div>
             <div class="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-800/80 flex items-center justify-between">
               <span class="text-zinc-400">Help Modal</span>
-              <span class="text-emerald-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">?</span>
+              <span class="text-orange-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">?</span>
             </div>
           </div>
         </div>
@@ -396,7 +397,7 @@
   <footer class="py-12 border-t border-zinc-900 bg-zinc-950">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-6 text-xs text-zinc-500">
       <div class="flex items-center space-x-3">
-        <div class="w-6 h-6 rounded bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+        <div class="w-6 h-6 rounded bg-orange-500/10 flex items-center justify-center text-orange-400">
           <i data-lucide="activity" class="w-4 h-4"></i>
         </div>
         <span>Pulse Observability TUI — Released under the MIT License</span>
