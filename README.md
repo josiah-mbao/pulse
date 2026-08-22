@@ -10,7 +10,8 @@
 
 <p align="center">
   <strong>An open-source Linux observability TUI built with Rust.</strong><br/>
-  Combining low-overhead <code>/proc</code> telemetry with real-time eBPF kernel lifecycle tracing.
+  Combining low-overhead <code>/proc</code> telemetry with real-time eBPF kernel lifecycle tracing.<br/><br/>
+  <a href="https://josiah-mbao.github.io/pulse/"><strong>🌐 Live Website &amp; Documentation</strong></a>
 </p>
 
 <p align="center">
@@ -148,6 +149,16 @@ curl -fsSL https://raw.githubusercontent.com/josiah-mbao/pulse/main/scripts/inst
 
 ---
 
+## 🦀 Via Cargo (Rust Ecosystem)
+
+Install directly from GitHub repository:
+
+```bash
+cargo install --git https://github.com/josiah-mbao/pulse.git
+```
+
+---
+
 ## 🔒 Permissions & Capabilities
 
 | Execution Mode | Command | Privileges | Features Available |
@@ -161,7 +172,7 @@ curl -fsSL https://raw.githubusercontent.com/josiah-mbao/pulse/main/scripts/inst
 
 ### Prerequisites
 
-- Rust (Nightly)
+- Rust (Nightly for eBPF target)
 - LLVM / Clang
 - `bpf-linker`
 
@@ -171,20 +182,17 @@ cargo install bpf-linker
 
 ---
 
-## Clone
+## Clone & Build
 
 ```bash
 git clone https://github.com/josiah-mbao/pulse.git
-
 cd pulse
-```
 
----
-
-## Build the eBPF Program
-
-```bash
+# 1. Build eBPF bytecode (embedded automatically by build.rs)
 cargo run --package xtask -- build-ebpf
+
+# 2. Build release binary
+cargo build --release
 ```
 
 ---
@@ -192,7 +200,11 @@ cargo run --package xtask -- build-ebpf
 ## Run Pulse
 
 ```bash
-sudo ./target/debug/pulse
+# Unprivileged /proc mode
+./target/release/pulse
+
+# eBPF Kernel Tracing mode
+sudo ./target/release/pulse
 ```
 
 Switch between observability lenses:
@@ -218,12 +230,19 @@ sudo cargo run --package xtask -- trace
 
 ---
 
-### Workspace Checks
+### Quality Gates, Tests & Benchmarks
 
-Run formatting, linting and tests.
+Run formatting, linting, unit/integration tests, and microbenchmarks:
 
 ```bash
+# Workspace CI checks
 cargo run --package xtask -- ci
+
+# Full Test Suite (87 tests)
+cargo test --workspace
+
+# Criterion Microbenchmarks
+cargo bench -- --test
 ```
 
 ---
